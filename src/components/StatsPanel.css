@@ -1,0 +1,23 @@
+.stats-panel {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  background: rgba(20, 20, 40, 0.95);
+  padding: 15px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.8;
+  backdrop-filter: blur(10px);
+  min-width: 180px;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.stat-value {
+  color: #00d4ff;
+  font-weight: bold;
+}

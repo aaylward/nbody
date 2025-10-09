@@ -1,0 +1,44 @@
+.top-bar {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: bold;
+  background: linear-gradient(90deg, #00d4ff, #ff6b6b);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.mode-selector {
+  display: flex;
+  gap: 10px;
+}
+
+.mode-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  background: #2a2a3e;
+  color: #888;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+
+.mode-btn:hover {
+  background: #3a3a4e;
+  color: #fff;
+}
+
+.mode-btn.active {
+  background: linear-gradient(135deg, #00d4ff, #0096c7);
+  color: #fff;
+}
