@@ -18,6 +18,7 @@ export function NBodyControls() {
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -46,9 +47,20 @@ export function NBodyControls() {
   };
 
   return (
-    <div className="control-panel">
-      <h3>N-Body Simulation</h3>
+    <div className={`control-panel ${isCollapsed ? 'collapsed' : ''}`}>
+      <div className="control-header">
+        <h3>N-Body Simulation</h3>
+        <button
+          className="toggle-button"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          aria-label={isCollapsed ? 'Expand controls' : 'Collapse controls'}
+        >
+          {isCollapsed ? '▶' : '◀'}
+        </button>
+      </div>
 
+      {!isCollapsed && (
+        <>
       {generating ? (
         <div className="demo-notice">
           <div
@@ -167,6 +179,8 @@ export function NBodyControls() {
       <button className="primary" onClick={() => window.location.reload()}>
         Reset View
       </button>
+        </>
+      )}
     </div>
   );
 }
