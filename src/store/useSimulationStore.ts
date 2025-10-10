@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import {
   SimulationMode,
-  Particle,
   Photon,
   MCTallyData,
   MCVisualizationMode,
@@ -15,7 +14,7 @@ interface SimulationStore {
 
   // N-Body state
   nbody: {
-    snapshots: Particle[][];
+    snapshots: Float32Array[];
     currentFrame: number;
     playing: boolean;
     particleSize: number;
@@ -24,7 +23,7 @@ interface SimulationStore {
     numSnapshots: number;
     deltaT: number;
   };
-  setNBodySnapshots: (snapshots: Particle[][]) => void;
+  setNBodySnapshots: (snapshots: Float32Array[]) => void;
   setNBodyFrame: (frame: number) => void;
   setNBodyPlaying: (playing: boolean) => void;
   setNBodyParticleSize: (size: number) => void;

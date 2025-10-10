@@ -36,7 +36,7 @@ export type MCVisualizationMode = 'particles' | 'tally';
 export type ColorScale = 'hot' | 'cool' | 'jet' | 'viridis';
 
 export interface NBodyState {
-  snapshots: Particle[][];
+  snapshots: Float32Array[];
   currentFrame: number;
   playing: boolean;
   particleSize: number;

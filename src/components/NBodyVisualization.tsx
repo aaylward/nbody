@@ -1,12 +1,15 @@
 import { useRef, useMemo, useEffect } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useSimulationStore } from '../store/useSimulationStore';
+import { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import { extractPositions, calculateColors, getCenterOfMass, getParticleCount } from '../simulation/particleData';
 
 export function NBodyVisualization() {
   const { nbody, setNBodyFrame } = useSimulationStore();
   const pointsRef = useRef<THREE.Points>(null);
   const lastFrameTime = useRef(0);
+  const { controls } = useThree();
 
   const geometry = useMemo(() => {
     const snapshot = nbody.snapshots[nbody.currentFrame];
@@ -14,20 +17,9 @@ export function NBodyVisualization() {
 
     const geom = new THREE.BufferGeometry();
 
-    const positions = new Float32Array(snapshot.length * 3);
-    const colors = new Float32Array(snapshot.length * 3);
-
-    snapshot.forEach((p, i) => {
-      positions[i * 3] = p.x;
-      positions[i * 3 + 1] = p.y;
-      positions[i * 3 + 2] = p.z;
-
-      const v = Math.sqrt(p.vx ** 2 + p.vy ** 2 + p.vz ** 2);
-      const norm = Math.min(v / 10, 1);
-      colors[i * 3] = 0.5 + norm * 0.5; // R
-      colors[i * 3 + 1] = 0.5; // G
-      colors[i * 3 + 2] = 1 - norm * 0.5; // B
-    });
+    // Extract positions and colors directly from TypedArray
+    const positions = extractPositions(snapshot);
+    const colors = calculateColors(snapshot, 10);
 
     geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -43,6 +35,17 @@ export function NBodyVisualization() {
   }, [geometry]);
 
   useFrame((state) => {
+    // Track the center of mass with the camera
+    const snapshot = nbody.snapshots[nbody.currentFrame];
+    if (snapshot && getParticleCount(snapshot) > 0) {
+      const centerOfMass = getCenterOfMass(snapshot);
+      if (controls && controls instanceof OrbitControlsImpl) {
+        // Smoothly update the orbit controls target to follow the center of mass
+        controls.target.set(centerOfMass.x, centerOfMass.y, centerOfMass.z);
+        controls.update();
+      }
+    }
+
     if (!nbody.playing || nbody.snapshots.length === 0) return;
 
     const elapsed = state.clock.getElapsedTime() * 1000;
@@ -60,7 +63,7 @@ export function NBodyVisualization() {
   return (
     <points ref={pointsRef} geometry={geometry}>
       <pointsMaterial
-        size={nbody.particleSize * 0.5}
+        size={0.5}
         vertexColors
         transparent
         opacity={0.8}

@@ -9,7 +9,6 @@ export function NBodyControls() {
     setNBodySnapshots,
     setNBodyFrame,
     setNBodyPlaying,
-    setNBodyParticleSize,
     setNBodyAnimationSpeed,
     setNBodyNumParticles,
     setNBodyNumSnapshots,
@@ -139,19 +138,6 @@ export function NBodyControls() {
           value={nbody.currentFrame}
           onChange={(e) => setNBodyFrame(parseInt(e.target.value))}
           disabled={nbody.snapshots.length === 0}
-        />
-      </div>
-
-      <div className="control-group">
-        <label>
-          Particle Size: <span className="value-display">{nbody.particleSize}</span>
-        </label>
-        <input
-          type="range"
-          min="1"
-          max="10"
-          value={nbody.particleSize}
-          onChange={(e) => setNBodyParticleSize(parseFloat(e.target.value))}
         />
       </div>
 

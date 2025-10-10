@@ -13,15 +13,15 @@ export function StatsPanel() {
     return (
       <div className="stats-panel">
         <div className="stat-row">
-          <span>Particles:</span>
+          <span className="stat-label">Particles:</span>
           <span className="stat-value">{numParticles.toLocaleString()}</span>
         </div>
         <div className="stat-row">
-          <span>Snapshots:</span>
+          <span className="stat-label">Snapshots:</span>
           <span className="stat-value">{numSnapshots.toLocaleString()}</span>
         </div>
         <div className="stat-row">
-          <span>Frame:</span>
+          <span className="stat-label">Frame:</span>
           <span className="stat-value">{nbody.currentFrame}</span>
         </div>
       </div>
@@ -31,17 +31,17 @@ export function StatsPanel() {
   return (
     <div className="stats-panel">
       <div className="stat-row">
-        <span>Active Photons:</span>
+        <span className="stat-label">Active Photons:</span>
         <span className="stat-value">
           {montecarlo.photons.filter((p) => p.alive).length}
         </span>
       </div>
       <div className="stat-row">
-        <span>Absorbed:</span>
+        <span className="stat-label">Absorbed:</span>
         <span className="stat-value">{montecarlo.absorbed}</span>
       </div>
       <div className="stat-row">
-        <span>Escaped:</span>
+        <span className="stat-label">Escaped:</span>
         <span className="stat-value">{montecarlo.escaped}</span>
       </div>
     </div>

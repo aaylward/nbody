@@ -1,23 +1,86 @@
 .stats-panel {
   position: absolute;
-  bottom: 20px;
-  right: 20px;
-  background: rgba(20, 20, 40, 0.95);
-  padding: 15px;
-  border-radius: 10px;
+  bottom: 16px;
+  right: 16px;
+  background: rgba(20, 20, 40, 0.97);
+  padding: 14px 16px;
+  border-radius: 12px;
   font-size: 13px;
   line-height: 1.8;
-  backdrop-filter: blur(10px);
-  min-width: 180px;
+  backdrop-filter: blur(12px);
+  min-width: 200px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  z-index: 50;
 }
 
 .stat-row {
   display: flex;
   justify-content: space-between;
-  gap: 20px;
+  gap: 24px;
+  margin-bottom: 4px;
+}
+
+.stat-row:last-child {
+  margin-bottom: 0;
+}
+
+.stat-label {
+  color: #bbb;
+  font-weight: 500;
 }
 
 .stat-value {
   color: #00d4ff;
-  font-weight: bold;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .stats-panel {
+    bottom: 12px;
+    right: 12px;
+    left: auto;
+    padding: 12px 14px;
+    font-size: 12px;
+    min-width: 160px;
+  }
+
+  .stat-row {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .stats-panel {
+    bottom: 10px;
+    right: 10px;
+    padding: 10px 12px;
+    font-size: 11px;
+    min-width: 140px;
+    border-radius: 10px;
+  }
+
+  .stat-row {
+    gap: 12px;
+    margin-bottom: 2px;
+  }
+}
+
+/* Landscape mobile orientation */
+@media (max-height: 500px) and (orientation: landscape) {
+  .stats-panel {
+    bottom: 8px;
+    right: 8px;
+    padding: 8px 10px;
+    font-size: 10px;
+    line-height: 1.6;
+    min-width: 120px;
+  }
+
+  .stat-row {
+    gap: 10px;
+    margin-bottom: 1px;
+  }
 }

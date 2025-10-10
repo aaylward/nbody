@@ -1,4 +1,17 @@
-import { Particle } from '../types';
+import {
+  createParticleArray,
+  setParticle,
+  cloneParticleData,
+  removeCenterOfMassVelocity,
+  FLOATS_PER_PARTICLE,
+  OFFSET_X,
+  OFFSET_Y,
+  OFFSET_Z,
+  OFFSET_VX,
+  OFFSET_VY,
+  OFFSET_VZ,
+  OFFSET_MASS,
+} from './particleData';
 
 export interface NBodySimulationOptions {
   numParticles: number;
@@ -33,7 +46,7 @@ export async function initGPU(): Promise<boolean> {
 
 export async function generateNBodyDemo(
   options: NBodySimulationOptions
-): Promise<Particle[][]> {
+): Promise<Float32Array[]> {
   const { numParticles, numSnapshots, deltaT, onProgress } = options;
 
   const gpuAvailable = gpuDevice || (await initGPU());
@@ -47,19 +60,20 @@ export async function generateNBodyDemo(
 
 async function generateNBodyGPU(
   options: NBodySimulationOptions
-): Promise<Particle[][]> {
+): Promise<Float32Array[]> {
   const { numParticles, numSnapshots, deltaT, onProgress } = options;
-  const snapshots: Particle[][] = [];
+  const snapshots: Float32Array[] = [];
 
   if (!gpuDevice) throw new Error('GPU device not initialized');
 
   console.log(`Starting GPU simulation: ${numParticles} particles, ${numSnapshots} snapshots`);
   onProgress?.(0, 'Initializing particles...');
 
-  // Initialize particles
-  const particles: Particle[] = [];
+  // Initialize particles using TypedArray
+  const particles = createParticleArray(numParticles);
 
-  particles.push({
+  // Central star
+  setParticle(particles, 0, {
     x: 0,
     y: 0,
     z: 0,
@@ -69,6 +83,7 @@ async function generateNBodyGPU(
     mass: 5000,
   });
 
+  // Orbiting particles
   for (let i = 1; i < numParticles; i++) {
     const r = 20 + Math.random() * 60;
     const theta = Math.random() * Math.PI * 2;
@@ -77,13 +92,17 @@ async function generateNBodyGPU(
     const x = r * Math.cos(theta);
     const y = r * Math.sin(theta);
 
-    const v = Math.sqrt(5000 / r) * 0.8;
+    // Circular orbit velocity: v = sqrt(GM/r) where G=1.0, M=5000
+    const v = Math.sqrt(5000 / r);
     const vx = -v * Math.sin(theta) + (Math.random() - 0.5) * 0.5;
     const vy = v * Math.cos(theta) + (Math.random() - 0.5) * 0.5;
     const vz = (Math.random() - 0.5) * 0.2;
 
-    particles.push({ x, y, z, vx, vy, vz, mass: 1 });
+    setParticle(particles, i, { x, y, z, vx, vy, vz, mass: 1 });
   }
+
+  // Remove net momentum to prevent drift
+  removeCenterOfMassVelocity(particles);
 
   // WebGPU shaders
   const computeForceShader = `
@@ -125,7 +144,8 @@ async function generateNBodyGPU(
     }
   `;
 
-  const updateParticlesShader = `
+  // Leapfrog integration - first kick + drift (combined for efficiency)
+  const kickDriftShader = `
     struct Particle {
         pos: vec3f,
         vel: vec3f,
@@ -142,15 +162,48 @@ async function generateNBodyGPU(
     @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 
     @compute @workgroup_size(256)
-    fn updateParticles(@builtin(global_invocation_id) id: vec3u) {
+    fn kickDrift(@builtin(global_invocation_id) id: vec3u) {
         let i = id.x;
         if (i >= arrayLength(&particles)) { return; }
 
         let mass = particles[i].mass;
         let accel = forces[i] / mass;
 
-        particles[i].vel += accel * uniforms.dt;
+        // Half-step velocity update (kick)
+        particles[i].vel += accel * uniforms.dt * 0.5;
+
+        // Full-step position update (drift)
         particles[i].pos += particles[i].vel * uniforms.dt;
+    }
+  `;
+
+  // Leapfrog integration - second kick (half-step velocity update)
+  const kickShader = `
+    struct Particle {
+        pos: vec3f,
+        vel: vec3f,
+        mass: f32,
+        _pad: f32,
+    }
+
+    struct Uniforms {
+        dt: f32,
+    }
+
+    @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
+    @group(0) @binding(1) var<storage, read> forces: array<vec3f>;
+    @group(0) @binding(2) var<uniform> uniforms: Uniforms;
+
+    @compute @workgroup_size(256)
+    fn kick(@builtin(global_invocation_id) id: vec3u) {
+        let i = id.x;
+        if (i >= arrayLength(&particles)) { return; }
+
+        let mass = particles[i].mass;
+        let accel = forces[i] / mass;
+
+        // Half-step velocity update
+        particles[i].vel += accel * uniforms.dt * 0.5;
     }
   `;
 
@@ -165,44 +218,47 @@ async function generateNBodyGPU(
   //   _pad: f32,    // offset 32-35 (bytes)
   // }                // total 36 bytes, padded to 48 for 16-byte struct alignment
 
-  // Float offsets for particle data layout
-  const POS_X = 0;
-  const POS_Y = 1;
-  const POS_Z = 2;
-  const POS_PAD = 3;
-  const VEL_X = 4;
-  const VEL_Y = 5;
-  const VEL_Z = 6;
-  const MASS = 7;
-  const MASS_PAD = 8;
-  const STRUCT_PAD_0 = 9;
-  const STRUCT_PAD_1 = 10;
-  const STRUCT_PAD_2 = 11;
-  const FLOATS_PER_PARTICLE = 12;
+  // GPU buffer layout (12 floats per particle with padding)
+  const GPU_FLOATS_PER_PARTICLE = 12;
+  const GPU_POS_X = 0;
+  const GPU_POS_Y = 1;
+  const GPU_POS_Z = 2;
+  const GPU_POS_PAD = 3;
+  const GPU_VEL_X = 4;
+  const GPU_VEL_Y = 5;
+  const GPU_VEL_Z = 6;
+  const GPU_MASS = 7;
+  const GPU_MASS_PAD = 8;
+  const GPU_STRUCT_PAD_0 = 9;
+  const GPU_STRUCT_PAD_1 = 10;
+  const GPU_STRUCT_PAD_2 = 11;
 
-  const particleData = new Float32Array(numParticles * FLOATS_PER_PARTICLE);
+  // Convert from our compact format (7 floats) to GPU format (12 floats)
+  const gpuParticleData = new Float32Array(numParticles * GPU_FLOATS_PER_PARTICLE);
   for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
-    particleData[offset + POS_X] = particles[i].x;
-    particleData[offset + POS_Y] = particles[i].y;
-    particleData[offset + POS_Z] = particles[i].z;
-    particleData[offset + POS_PAD] = 0;
-    particleData[offset + VEL_X] = particles[i].vx;
-    particleData[offset + VEL_Y] = particles[i].vy;
-    particleData[offset + VEL_Z] = particles[i].vz;
-    particleData[offset + MASS] = particles[i].mass ?? 1;
-    particleData[offset + MASS_PAD] = 0;
-    particleData[offset + STRUCT_PAD_0] = 0;
-    particleData[offset + STRUCT_PAD_1] = 0;
-    particleData[offset + STRUCT_PAD_2] = 0;
+    const srcOffset = i * FLOATS_PER_PARTICLE;
+    const dstOffset = i * GPU_FLOATS_PER_PARTICLE;
+
+    gpuParticleData[dstOffset + GPU_POS_X] = particles[srcOffset + OFFSET_X];
+    gpuParticleData[dstOffset + GPU_POS_Y] = particles[srcOffset + OFFSET_Y];
+    gpuParticleData[dstOffset + GPU_POS_Z] = particles[srcOffset + OFFSET_Z];
+    gpuParticleData[dstOffset + GPU_POS_PAD] = 0;
+    gpuParticleData[dstOffset + GPU_VEL_X] = particles[srcOffset + OFFSET_VX];
+    gpuParticleData[dstOffset + GPU_VEL_Y] = particles[srcOffset + OFFSET_VY];
+    gpuParticleData[dstOffset + GPU_VEL_Z] = particles[srcOffset + OFFSET_VZ];
+    gpuParticleData[dstOffset + GPU_MASS] = particles[srcOffset + OFFSET_MASS];
+    gpuParticleData[dstOffset + GPU_MASS_PAD] = 0;
+    gpuParticleData[dstOffset + GPU_STRUCT_PAD_0] = 0;
+    gpuParticleData[dstOffset + GPU_STRUCT_PAD_1] = 0;
+    gpuParticleData[dstOffset + GPU_STRUCT_PAD_2] = 0;
   }
 
   const particleBuffer = gpuDevice.createBuffer({
-    size: particleData.byteLength,
+    size: gpuParticleData.byteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     mappedAtCreation: true,
   });
-  new Float32Array(particleBuffer.getMappedRange()).set(particleData);
+  new Float32Array(particleBuffer.getMappedRange()).set(gpuParticleData);
   particleBuffer.unmap();
 
   const forceBuffer = gpuDevice.createBuffer({
@@ -219,27 +275,33 @@ async function generateNBodyGPU(
   uniformBuffer.unmap();
 
   const stagingBuffer = gpuDevice.createBuffer({
-    size: particleData.byteLength * 2,
+    size: gpuParticleData.byteLength * 2,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
   });
 
   const snapshotReadBuffer = gpuDevice.createBuffer({
-    size: particleData.byteLength * 2,
+    size: gpuParticleData.byteLength * 2,
     usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
   });
 
   // Create compute pipelines
   const forceModule = gpuDevice.createShaderModule({ code: computeForceShader });
-  const updateModule = gpuDevice.createShaderModule({ code: updateParticlesShader });
+  const kickDriftModule = gpuDevice.createShaderModule({ code: kickDriftShader });
+  const kickModule = gpuDevice.createShaderModule({ code: kickShader });
 
   const forcePipeline = gpuDevice.createComputePipeline({
     layout: 'auto',
     compute: { module: forceModule, entryPoint: 'computeForces' },
   });
 
-  const updatePipeline = gpuDevice.createComputePipeline({
+  const kickDriftPipeline = gpuDevice.createComputePipeline({
     layout: 'auto',
-    compute: { module: updateModule, entryPoint: 'updateParticles' },
+    compute: { module: kickDriftModule, entryPoint: 'kickDrift' },
+  });
+
+  const kickPipeline = gpuDevice.createComputePipeline({
+    layout: 'auto',
+    compute: { module: kickModule, entryPoint: 'kick' },
   });
 
   const forceBindGroup = gpuDevice.createBindGroup({
@@ -250,8 +312,17 @@ async function generateNBodyGPU(
     ],
   });
 
-  const updateBindGroup = gpuDevice.createBindGroup({
-    layout: updatePipeline.getBindGroupLayout(0),
+  const kickDriftBindGroup = gpuDevice.createBindGroup({
+    layout: kickDriftPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: particleBuffer } },
+      { binding: 1, resource: { buffer: forceBuffer } },
+      { binding: 2, resource: { buffer: uniformBuffer } },
+    ],
+  });
+
+  const kickBindGroup = gpuDevice.createBindGroup({
+    layout: kickPipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: particleBuffer } },
       { binding: 1, resource: { buffer: forceBuffer } },
@@ -276,23 +347,23 @@ async function generateNBodyGPU(
         0,
         snapshotReadBuffer,
         0,
-        particleData.byteLength * snapshotsPerTransfer
+        gpuParticleData.byteLength * snapshotsPerTransfer
       );
       gpuDevice.queue.submit([commandEncoder.finish()]);
 
       await snapshotReadBuffer.mapAsync(GPUMapMode.READ);
-      const data = new Float32Array(snapshotReadBuffer.getMappedRange());
+      const gpuData = new Float32Array(snapshotReadBuffer.getMappedRange());
 
       for (let s = 0; s < snapshotsPerTransfer; s++) {
-        const snapshot: Particle[] = [];
-        const offset = s * numParticles * FLOATS_PER_PARTICLE;
+        const snapshot = createParticleArray(numParticles);
+        const gpuOffset = s * numParticles * GPU_FLOATS_PER_PARTICLE;
 
         let hasNaN = false;
         for (let i = 0; i < numParticles; i++) {
-          const idx = offset + i * FLOATS_PER_PARTICLE;
-          const x = data[idx + POS_X];
-          const y = data[idx + POS_Y];
-          const z = data[idx + POS_Z];
+          const gpuIdx = gpuOffset + i * GPU_FLOATS_PER_PARTICLE;
+          const x = gpuData[gpuIdx + GPU_POS_X];
+          const y = gpuData[gpuIdx + GPU_POS_Y];
+          const z = gpuData[gpuIdx + GPU_POS_Z];
 
           if (isNaN(x) || isNaN(y) || isNaN(z)) {
             console.error(`NaN detected in GPU transfer at snapshot ${snapshots.length}, particle ${i}: (${x}, ${y}, ${z})`);
@@ -300,14 +371,15 @@ async function generateNBodyGPU(
             break;
           }
 
-          snapshot.push({
-            x,
-            y,
-            z,
-            vx: data[idx + VEL_X],
-            vy: data[idx + VEL_Y],
-            vz: data[idx + VEL_Z],
-          });
+          // Convert from GPU format (12 floats) to compact format (7 floats)
+          const compactOffset = i * FLOATS_PER_PARTICLE;
+          snapshot[compactOffset + OFFSET_X] = x;
+          snapshot[compactOffset + OFFSET_Y] = y;
+          snapshot[compactOffset + OFFSET_Z] = z;
+          snapshot[compactOffset + OFFSET_VX] = gpuData[gpuIdx + GPU_VEL_X];
+          snapshot[compactOffset + OFFSET_VY] = gpuData[gpuIdx + GPU_VEL_Y];
+          snapshot[compactOffset + OFFSET_VZ] = gpuData[gpuIdx + GPU_VEL_Z];
+          snapshot[compactOffset + OFFSET_MASS] = gpuData[gpuIdx + GPU_MASS];
         }
 
         if (hasNaN) {
@@ -334,32 +406,48 @@ async function generateNBodyGPU(
     // Save snapshot to staging buffer
     if (step % saveInterval === 0) {
       const commandEncoder = gpuDevice.createCommandEncoder();
-      const offset = stagingIndex * particleData.byteLength;
+      const offset = stagingIndex * gpuParticleData.byteLength;
       commandEncoder.copyBufferToBuffer(
         particleBuffer,
         0,
         stagingBuffer,
         offset,
-        particleData.byteLength
+        gpuParticleData.byteLength
       );
       gpuDevice.queue.submit([commandEncoder.finish()]);
       stagingIndex++;
     }
 
-    // Compute forces and update
+    // Leapfrog integration: 4-pass optimized kick-drift-kick
     const commandEncoder = gpuDevice.createCommandEncoder();
 
-    const forcePass = commandEncoder.beginComputePass();
-    forcePass.setPipeline(forcePipeline);
-    forcePass.setBindGroup(0, forceBindGroup);
-    forcePass.dispatchWorkgroups(workgroupCount);
-    forcePass.end();
+    // 1. Compute forces at current positions
+    const forcePass1 = commandEncoder.beginComputePass();
+    forcePass1.setPipeline(forcePipeline);
+    forcePass1.setBindGroup(0, forceBindGroup);
+    forcePass1.dispatchWorkgroups(workgroupCount);
+    forcePass1.end();
 
-    const updatePass = commandEncoder.beginComputePass();
-    updatePass.setPipeline(updatePipeline);
-    updatePass.setBindGroup(0, updateBindGroup);
-    updatePass.dispatchWorkgroups(workgroupCount);
-    updatePass.end();
+    // 2. First kick + drift (combined for efficiency)
+    const kickDriftPass = commandEncoder.beginComputePass();
+    kickDriftPass.setPipeline(kickDriftPipeline);
+    kickDriftPass.setBindGroup(0, kickDriftBindGroup);
+    kickDriftPass.dispatchWorkgroups(workgroupCount);
+    kickDriftPass.end();
+
+    // 3. Recompute forces at new positions
+    const forcePass2 = commandEncoder.beginComputePass();
+    forcePass2.setPipeline(forcePipeline);
+    forcePass2.setBindGroup(0, forceBindGroup);
+    forcePass2.dispatchWorkgroups(workgroupCount);
+    forcePass2.end();
+
+    // 4. Second kick: half-step velocity update
+    const kickPass = commandEncoder.beginComputePass();
+    kickPass.setPipeline(kickPipeline);
+    kickPass.setBindGroup(0, kickBindGroup);
+    kickPass.dispatchWorkgroups(workgroupCount);
+    kickPass.end();
 
     gpuDevice.queue.submit([commandEncoder.finish()]);
   }
@@ -372,27 +460,29 @@ async function generateNBodyGPU(
       0,
       snapshotReadBuffer,
       0,
-      particleData.byteLength * stagingIndex
+      gpuParticleData.byteLength * stagingIndex
     );
     gpuDevice.queue.submit([commandEncoder.finish()]);
 
     await snapshotReadBuffer.mapAsync(GPUMapMode.READ);
-    const data = new Float32Array(snapshotReadBuffer.getMappedRange());
+    const gpuData = new Float32Array(snapshotReadBuffer.getMappedRange());
 
     for (let s = 0; s < stagingIndex; s++) {
-      const snapshot: Particle[] = [];
-      const offset = s * numParticles * FLOATS_PER_PARTICLE;
+      const snapshot = createParticleArray(numParticles);
+      const gpuOffset = s * numParticles * GPU_FLOATS_PER_PARTICLE;
 
       for (let i = 0; i < numParticles; i++) {
-        const idx = offset + i * FLOATS_PER_PARTICLE;
-        snapshot.push({
-          x: data[idx + POS_X],
-          y: data[idx + POS_Y],
-          z: data[idx + POS_Z],
-          vx: data[idx + VEL_X],
-          vy: data[idx + VEL_Y],
-          vz: data[idx + VEL_Z],
-        });
+        const gpuIdx = gpuOffset + i * GPU_FLOATS_PER_PARTICLE;
+        const compactOffset = i * FLOATS_PER_PARTICLE;
+
+        // Convert from GPU format (12 floats) to compact format (7 floats)
+        snapshot[compactOffset + OFFSET_X] = gpuData[gpuIdx + GPU_POS_X];
+        snapshot[compactOffset + OFFSET_Y] = gpuData[gpuIdx + GPU_POS_Y];
+        snapshot[compactOffset + OFFSET_Z] = gpuData[gpuIdx + GPU_POS_Z];
+        snapshot[compactOffset + OFFSET_VX] = gpuData[gpuIdx + GPU_VEL_X];
+        snapshot[compactOffset + OFFSET_VY] = gpuData[gpuIdx + GPU_VEL_Y];
+        snapshot[compactOffset + OFFSET_VZ] = gpuData[gpuIdx + GPU_VEL_Z];
+        snapshot[compactOffset + OFFSET_MASS] = gpuData[gpuIdx + GPU_MASS];
       }
       snapshots.push(snapshot);
     }
@@ -419,13 +509,15 @@ async function generateNBodyGPU(
 
 async function generateNBodyCPU(
   options: NBodySimulationOptions
-): Promise<Particle[][]> {
+): Promise<Float32Array[]> {
   const { numParticles, numSnapshots, deltaT, onProgress } = options;
-  const snapshots: Particle[][] = [];
+  const snapshots: Float32Array[] = [];
 
-  const particles: Particle[] = [];
+  // Initialize particles using TypedArray
+  const particles = createParticleArray(numParticles);
 
-  particles.push({
+  // Central star
+  setParticle(particles, 0, {
     x: 0,
     y: 0,
     z: 0,
@@ -435,6 +527,7 @@ async function generateNBodyCPU(
     mass: 5000,
   });
 
+  // Orbiting particles
   for (let i = 1; i < numParticles; i++) {
     const r = 20 + Math.random() * 60;
     const theta = Math.random() * Math.PI * 2;
@@ -443,62 +536,151 @@ async function generateNBodyCPU(
     const x = r * Math.cos(theta);
     const y = r * Math.sin(theta);
 
-    const v = Math.sqrt(5000 / r) * 0.8;
+    // Circular orbit velocity: v = sqrt(GM/r) where G=1.0, M=5000
+    const v = Math.sqrt(5000 / r);
     const vx = -v * Math.sin(theta) + (Math.random() - 0.5) * 0.5;
     const vy = v * Math.cos(theta) + (Math.random() - 0.5) * 0.5;
     const vz = (Math.random() - 0.5) * 0.2;
 
-    particles.push({ x, y, z, vx, vy, vz, mass: 1 });
+    setParticle(particles, i, { x, y, z, vx, vy, vz, mass: 1 });
   }
+
+  // Remove net momentum to prevent drift
+  removeCenterOfMassVelocity(particles);
 
   const G = 1.0;
   const softening = 2.0;
   const chunkSize = 50;
 
+  // Pre-allocate forces array
+  const forces = new Float32Array(numParticles * 3);
+
   for (let chunkStart = 0; chunkStart < numSnapshots; chunkStart += chunkSize) {
     const chunkEnd = Math.min(chunkStart + chunkSize, numSnapshots);
 
     for (let step = chunkStart; step < chunkEnd; step++) {
-      snapshots.push(JSON.parse(JSON.stringify(particles)));
+      // Clone snapshot
+      snapshots.push(cloneParticleData(particles));
 
-      const forces = particles.map(() => ({ fx: 0, fy: 0, fz: 0 }));
+      // Reset forces
+      forces.fill(0);
 
-      for (let i = 0; i < particles.length; i++) {
-        for (let j = i + 1; j < particles.length; j++) {
-          const dx = particles[j].x - particles[i].x;
-          const dy = particles[j].y - particles[i].y;
-          const dz = particles[j].z - particles[i].z;
+      // Compute forces (O(N²) all-pairs)
+      for (let i = 0; i < numParticles; i++) {
+        const iOffset = i * FLOATS_PER_PARTICLE;
+        const ix = particles[iOffset + OFFSET_X];
+        const iy = particles[iOffset + OFFSET_Y];
+        const iz = particles[iOffset + OFFSET_Z];
+        const im = particles[iOffset + OFFSET_MASS];
+
+        for (let j = i + 1; j < numParticles; j++) {
+          const jOffset = j * FLOATS_PER_PARTICLE;
+          const jx = particles[jOffset + OFFSET_X];
+          const jy = particles[jOffset + OFFSET_Y];
+          const jz = particles[jOffset + OFFSET_Z];
+          const jm = particles[jOffset + OFFSET_MASS];
+
+          const dx = jx - ix;
+          const dy = jy - iy;
+          const dz = jz - iz;
 
           const r2 = dx * dx + dy * dy + dz * dz + softening * softening;
           const r = Math.sqrt(r2);
-          const f = (G * (particles[i].mass ?? 1) * (particles[j].mass ?? 1)) / r2;
+          const f = (G * im * jm) / r2;
 
           const fx = (f * dx) / r;
           const fy = (f * dy) / r;
           const fz = (f * dz) / r;
 
-          forces[i].fx += fx;
-          forces[i].fy += fy;
-          forces[i].fz += fz;
+          forces[i * 3 + 0] += fx;
+          forces[i * 3 + 1] += fy;
+          forces[i * 3 + 2] += fz;
 
-          forces[j].fx -= fx;
-          forces[j].fy -= fy;
-          forces[j].fz -= fz;
+          forces[j * 3 + 0] -= fx;
+          forces[j * 3 + 1] -= fy;
+          forces[j * 3 + 2] -= fz;
         }
       }
 
-      for (let i = 0; i < particles.length; i++) {
-        const ax = forces[i].fx / (particles[i].mass ?? 1);
-        const ay = forces[i].fy / (particles[i].mass ?? 1);
-        const az = forces[i].fz / (particles[i].mass ?? 1);
+      // Leapfrog integration (kick-drift-kick)
+      // Half-step velocity update (kick)
+      for (let i = 0; i < numParticles; i++) {
+        const offset = i * FLOATS_PER_PARTICLE;
+        const mass = particles[offset + OFFSET_MASS];
 
-        particles[i].vx += ax * deltaT;
-        particles[i].vy += ay * deltaT;
-        particles[i].vz += az * deltaT;
+        const ax = forces[i * 3 + 0] / mass;
+        const ay = forces[i * 3 + 1] / mass;
+        const az = forces[i * 3 + 2] / mass;
 
-        particles[i].x += particles[i].vx * deltaT;
-        particles[i].y += particles[i].vy * deltaT;
-        particles[i].z += particles[i].vz * deltaT;
+        particles[offset + OFFSET_VX] += ax * deltaT * 0.5;
+        particles[offset + OFFSET_VY] += ay * deltaT * 0.5;
+        particles[offset + OFFSET_VZ] += az * deltaT * 0.5;
+      }
+
+      // Full-step position update (drift)
+      for (let i = 0; i < numParticles; i++) {
+        const offset = i * FLOATS_PER_PARTICLE;
+
+        particles[offset + OFFSET_X] += particles[offset + OFFSET_VX] * deltaT;
+        particles[offset + OFFSET_Y] += particles[offset + OFFSET_VY] * deltaT;
+        particles[offset + OFFSET_Z] += particles[offset + OFFSET_VZ] * deltaT;
+      }
+
+      // Recompute forces at new positions
+      forces.fill(0);
+      for (let i = 0; i < numParticles; i++) {
+        const iOffset = i * FLOATS_PER_PARTICLE;
+        const ix = particles[iOffset + OFFSET_X];
+        const iy = particles[iOffset + OFFSET_Y];
+        const iz = particles[iOffset + OFFSET_Z];
+        const im = particles[iOffset + OFFSET_MASS];
+
+        for (let j = i + 1; j < numParticles; j++) {
+          const jOffset = j * FLOATS_PER_PARTICLE;
+          const jx = particles[jOffset + OFFSET_X];
+          const jy = particles[jOffset + OFFSET_Y];
+          const jz = particles[jOffset + OFFSET_Z];
+          const jm = particles[jOffset + OFFSET_MASS];
+
+          const dx = jx - ix;
+          const dy = jy - iy;
+          const dz = jz - iz;
+
+          const r2 = dx * dx + dy * dy + dz * dz + softening * softening;
+          const r = Math.sqrt(r2);
+          const f = (G * im * jm) / r2;
+
+          const fx = (f * dx) / r;
+          const fy = (f * dy) / r;
+          const fz = (f * dz) / r;
+
+          forces[i * 3 + 0] += fx;
+          forces[i * 3 + 1] += fy;
+          forces[i * 3 + 2] += fz;
+
+          forces[j * 3 + 0] -= fx;
+          forces[j * 3 + 1] -= fy;
+          forces[j * 3 + 2] -= fz;
+        }
+      }
+
+      // Half-step velocity update (kick)
+      for (let i = 0; i < numParticles; i++) {
+        const offset = i * FLOATS_PER_PARTICLE;
+        const mass = particles[offset + OFFSET_MASS];
+
+        const ax = forces[i * 3 + 0] / mass;
+        const ay = forces[i * 3 + 1] / mass;
+        const az = forces[i * 3 + 2] / mass;
+
+        particles[offset + OFFSET_VX] += ax * deltaT * 0.5;
+        particles[offset + OFFSET_VY] += ay * deltaT * 0.5;
+        particles[offset + OFFSET_VZ] += az * deltaT * 0.5;
+      }
+
+      // Correct momentum drift every 10 steps
+      if (step % 10 === 0) {
+        removeCenterOfMassVelocity(particles);
       }
     }
 
@@ -512,12 +694,12 @@ async function generateNBodyCPU(
 }
 
 function interpolateSnapshots(
-  snapshots: Particle[][],
+  snapshots: Float32Array[],
   saveInterval: number,
   numParticles: number
-): Particle[][] {
+): Float32Array[] {
   const totalFrames = (snapshots.length - 1) * saveInterval + 1;
-  const fullSnapshots: Particle[][] = new Array(totalFrames);
+  const fullSnapshots: Float32Array[] = new Array(totalFrames);
 
   let frameIndex = 0;
 
@@ -531,20 +713,20 @@ function interpolateSnapshots(
       const t = j / saveInterval;
       const oneMinusT = 1 - t;
 
-      const interpolated: Particle[] = new Array(numParticles);
+      const interpolated = createParticleArray(numParticles);
 
       for (let p = 0; p < numParticles; p++) {
-        const p1 = snap1[p];
-        const p2 = snap2[p];
+        const offset1 = p * FLOATS_PER_PARTICLE;
+        const offset2 = p * FLOATS_PER_PARTICLE;
 
-        interpolated[p] = {
-          x: p1.x * oneMinusT + p2.x * t,
-          y: p1.y * oneMinusT + p2.y * t,
-          z: p1.z * oneMinusT + p2.z * t,
-          vx: p1.vx * oneMinusT + p2.vx * t,
-          vy: p1.vy * oneMinusT + p2.vy * t,
-          vz: p1.vz * oneMinusT + p2.vz * t,
-        };
+        // Interpolate each component
+        interpolated[offset1 + OFFSET_X] = snap1[offset1 + OFFSET_X] * oneMinusT + snap2[offset2 + OFFSET_X] * t;
+        interpolated[offset1 + OFFSET_Y] = snap1[offset1 + OFFSET_Y] * oneMinusT + snap2[offset2 + OFFSET_Y] * t;
+        interpolated[offset1 + OFFSET_Z] = snap1[offset1 + OFFSET_Z] * oneMinusT + snap2[offset2 + OFFSET_Z] * t;
+        interpolated[offset1 + OFFSET_VX] = snap1[offset1 + OFFSET_VX] * oneMinusT + snap2[offset2 + OFFSET_VX] * t;
+        interpolated[offset1 + OFFSET_VY] = snap1[offset1 + OFFSET_VY] * oneMinusT + snap2[offset2 + OFFSET_VY] * t;
+        interpolated[offset1 + OFFSET_VZ] = snap1[offset1 + OFFSET_VZ] * oneMinusT + snap2[offset2 + OFFSET_VZ] * t;
+        interpolated[offset1 + OFFSET_MASS] = snap1[offset1 + OFFSET_MASS]; // Mass doesn't change
       }
 
       fullSnapshots[frameIndex++] = interpolated;

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { generateNBodyDemo, initGPU } from '../nbody';
+import { getParticle, getParticleCount } from '../particleData';
 
 describe('N-Body Simulation', () => {
   beforeEach(() => {
@@ -18,7 +19,7 @@ describe('N-Body Simulation', () => {
       });
 
       expect(snapshots).toHaveLength(numSnapshots);
-      expect(snapshots[0]).toHaveLength(numParticles);
+      expect(getParticleCount(snapshots[0])).toBe(numParticles);
     });
 
     it('should have a central massive body at origin', async () => {
@@ -28,7 +29,7 @@ describe('N-Body Simulation', () => {
         deltaT: 0.05,
       });
 
-      const centralBody = snapshots[0][0];
+      const centralBody = getParticle(snapshots[0], 0);
       expect(centralBody.x).toBe(0);
       expect(centralBody.y).toBe(0);
       expect(centralBody.z).toBe(0);
@@ -43,8 +44,9 @@ describe('N-Body Simulation', () => {
       });
 
       // Check that orbiting particles are not at origin
-      for (let i = 1; i < snapshots[0].length; i++) {
-        const p = snapshots[0][i];
+      const numParticles = getParticleCount(snapshots[0]);
+      for (let i = 1; i < numParticles; i++) {
+        const p = getParticle(snapshots[0], i);
         const r = Math.sqrt(p.x ** 2 + p.y ** 2 + p.z ** 2);
         expect(r).toBeGreaterThan(0);
         expect(r).toBeGreaterThanOrEqual(20); // min radius
@@ -60,8 +62,8 @@ describe('N-Body Simulation', () => {
       });
 
       // Check that positions change between snapshots
-      const particle1Start = snapshots[0][1];
-      const particle1End = snapshots[4][1];
+      const particle1Start = getParticle(snapshots[0], 1);
+      const particle1End = getParticle(snapshots[4], 1);
 
       const distanceMoved = Math.sqrt(
         (particle1End.x - particle1Start.x) ** 2 +
@@ -100,7 +102,7 @@ describe('N-Body Simulation', () => {
       });
 
       snapshots.forEach((snapshot) => {
-        expect(snapshot).toHaveLength(numParticles);
+        expect(getParticleCount(snapshot)).toBe(numParticles);
       });
     });
 
@@ -112,14 +114,16 @@ describe('N-Body Simulation', () => {
       });
 
       snapshots.forEach((snapshot) => {
-        snapshot.forEach((particle) => {
+        const numParticles = getParticleCount(snapshot);
+        for (let i = 0; i < numParticles; i++) {
+          const particle = getParticle(snapshot, i);
           expect(Number.isFinite(particle.x)).toBe(true);
           expect(Number.isFinite(particle.y)).toBe(true);
           expect(Number.isFinite(particle.z)).toBe(true);
           expect(Number.isFinite(particle.vx)).toBe(true);
           expect(Number.isFinite(particle.vy)).toBe(true);
           expect(Number.isFinite(particle.vz)).toBe(true);
-        });
+        }
       });
     });
   });
@@ -133,18 +137,20 @@ describe('N-Body Simulation', () => {
       });
 
       expect(snapshots).toHaveLength(10);
-      expect(snapshots[0]).toHaveLength(100);
+      expect(getParticleCount(snapshots[0])).toBe(100);
 
       // Verify all particles have valid data
       snapshots.forEach((snapshot) => {
-        snapshot.forEach((particle) => {
+        const numParticles = getParticleCount(snapshot);
+        for (let i = 0; i < numParticles; i++) {
+          const particle = getParticle(snapshot, i);
           expect(Number.isFinite(particle.x)).toBe(true);
           expect(Number.isFinite(particle.y)).toBe(true);
           expect(Number.isFinite(particle.z)).toBe(true);
           expect(Number.isFinite(particle.vx)).toBe(true);
           expect(Number.isFinite(particle.vy)).toBe(true);
           expect(Number.isFinite(particle.vz)).toBe(true);
-        });
+        }
       });
     });
 
@@ -159,11 +165,13 @@ describe('N-Body Simulation', () => {
 
       // Verify no NaN values
       snapshots.forEach((snapshot) => {
-        snapshot.forEach((particle) => {
+        const numParticles = getParticleCount(snapshot);
+        for (let i = 0; i < numParticles; i++) {
+          const particle = getParticle(snapshot, i);
           expect(Number.isNaN(particle.x)).toBe(false);
           expect(Number.isNaN(particle.y)).toBe(false);
           expect(Number.isNaN(particle.z)).toBe(false);
-        });
+        }
       });
     });
 
@@ -175,15 +183,17 @@ describe('N-Body Simulation', () => {
       });
 
       expect(snapshots).toHaveLength(10);
-      expect(snapshots[0]).toHaveLength(100);
+      expect(getParticleCount(snapshots[0])).toBe(100);
 
       // Verify all particles have valid data
       snapshots.forEach((snapshot) => {
-        snapshot.forEach((particle) => {
+        const numParticles = getParticleCount(snapshot);
+        for (let i = 0; i < numParticles; i++) {
+          const particle = getParticle(snapshot, i);
           expect(Number.isFinite(particle.x)).toBe(true);
           expect(Number.isFinite(particle.y)).toBe(true);
           expect(Number.isFinite(particle.z)).toBe(true);
-        });
+        }
       });
     });
 
@@ -205,8 +215,8 @@ describe('N-Body Simulation', () => {
       expect(snapshots1).toHaveLength(5);
       expect(snapshots2).toHaveLength(5);
 
-      const finalParticle1 = snapshots1[4][1];
-      const finalParticle2 = snapshots2[4][1];
+      const finalParticle1 = getParticle(snapshots1[4], 1);
+      const finalParticle2 = getParticle(snapshots2[4], 1);
 
       expect(Number.isFinite(finalParticle1.x)).toBe(true);
       expect(Number.isFinite(finalParticle2.x)).toBe(true);
@@ -229,19 +239,25 @@ describe('N-Body Simulation', () => {
 
       // Calculate average movement for small deltaT
       let totalMovementSmall = 0;
-      for (let i = 1; i < snapshotsSmall[0].length; i++) {
-        const dx = snapshotsSmall[1][i].x - snapshotsSmall[0][i].x;
-        const dy = snapshotsSmall[1][i].y - snapshotsSmall[0][i].y;
-        const dz = snapshotsSmall[1][i].z - snapshotsSmall[0][i].z;
+      const numParticlesSmall = getParticleCount(snapshotsSmall[0]);
+      for (let i = 1; i < numParticlesSmall; i++) {
+        const p0 = getParticle(snapshotsSmall[0], i);
+        const p1 = getParticle(snapshotsSmall[1], i);
+        const dx = p1.x - p0.x;
+        const dy = p1.y - p0.y;
+        const dz = p1.z - p0.z;
         totalMovementSmall += Math.sqrt(dx * dx + dy * dy + dz * dz);
       }
 
       // Calculate average movement for large deltaT
       let totalMovementLarge = 0;
-      for (let i = 1; i < snapshotsLarge[0].length; i++) {
-        const dx = snapshotsLarge[1][i].x - snapshotsLarge[0][i].x;
-        const dy = snapshotsLarge[1][i].y - snapshotsLarge[0][i].y;
-        const dz = snapshotsLarge[1][i].z - snapshotsLarge[0][i].z;
+      const numParticlesLarge = getParticleCount(snapshotsLarge[0]);
+      for (let i = 1; i < numParticlesLarge; i++) {
+        const p0 = getParticle(snapshotsLarge[0], i);
+        const p1 = getParticle(snapshotsLarge[1], i);
+        const dx = p1.x - p0.x;
+        const dy = p1.y - p0.y;
+        const dz = p1.z - p0.z;
         totalMovementLarge += Math.sqrt(dx * dx + dy * dy + dz * dz);
       }
 
@@ -262,11 +278,13 @@ describe('N-Body Simulation', () => {
 
       // Should still produce valid data even with large timestep
       snapshots.forEach((snapshot) => {
-        snapshot.forEach((particle) => {
+        const numParticles = getParticleCount(snapshot);
+        for (let i = 0; i < numParticles; i++) {
+          const particle = getParticle(snapshot, i);
           expect(Number.isFinite(particle.x)).toBe(true);
           expect(Number.isFinite(particle.y)).toBe(true);
           expect(Number.isFinite(particle.z)).toBe(true);
-        });
+        }
       });
     });
   });
