@@ -29,7 +29,7 @@ export interface MCTallyData {
   maxCount: number;
 }
 
-export type SimulationMode = 'nbody' | 'montecarlo';
+export type SimulationMode = 'nbody' | 'nbody-realtime' | 'montecarlo';
 
 export type MCVisualizationMode = 'particles' | 'tally';
 

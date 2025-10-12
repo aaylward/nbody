@@ -13,7 +13,13 @@ export function TopBar() {
           className={`mode-btn ${mode === 'nbody' ? 'active' : ''}`}
           onClick={() => setMode('nbody')}
         >
-          N-Body
+          N-Body (Precomputed)
+        </button>
+        <button
+          className={`mode-btn ${mode === 'nbody-realtime' ? 'active' : ''}`}
+          onClick={() => setMode('nbody-realtime')}
+        >
+          N-Body (Real-Time)
         </button>
         <button
           className={`mode-btn ${mode === 'montecarlo' ? 'active' : ''}`}
