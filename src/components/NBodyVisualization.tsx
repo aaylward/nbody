@@ -108,7 +108,7 @@ export function NBodyVisualization() {
              // Update buffer
              const attr = realTimeGeometry.getAttribute('position') as THREE.InterleavedBufferAttribute;
              const buffer = attr.data;
-             buffer.set(data);
+             buffer.set(data, 0);
              buffer.needsUpdate = true;
 
              isReadingBack.current = false;

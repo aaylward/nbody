@@ -316,7 +316,7 @@ export class NBodyGPU {
     });
   }
 
-  step(dt: number) {
+  step(_dt: number) {
     // We could update deltaT in uniform buffer here if it changes,
     // but for now we assume it's constant or update it sparingly.
     // If needed:
