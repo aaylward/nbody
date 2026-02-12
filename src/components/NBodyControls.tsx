@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSimulationStore } from '../store/useSimulationStore';
-import { generateNBodyDemo, initRealTimeSimulation } from '../simulation/nbody';
+import { generateNBodyDemo, initRealTimeSimulation, activeSimulation } from '../simulation/nbody';
 import './NBodyControls.css';
 
 export function NBodyControls() {
@@ -20,12 +20,14 @@ export function NBodyControls() {
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleGenerate = async () => {
     setGenerating(true);
     setProgress(0);
     setProgressMessage('Starting...');
+    setStatusMessage('');
 
     try {
       if (nbody.isRealTime) {
@@ -41,10 +43,6 @@ export function NBodyControls() {
         });
 
         if (success) {
-            // Signal to visualization that we are ready.
-            // We use snapshots array to store a dummy snapshot to trigger render?
-            // Visualization checks nbody.snapshots.length === 0 to return null.
-            // So we need to put something in snapshots.
             setNBodySnapshots([new Float32Array(0)]); // Dummy
             setNBodyPlaying(true);
             setNBodySimulationTimestamp(Date.now());
@@ -73,6 +71,69 @@ export function NBodyControls() {
       setProgressMessage('Error: ' + (error as Error).message);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleBenchmark = async () => {
+    if (!nbody.isRealTime) {
+        alert("Please enable 'Real-time GPU Mode' first.");
+        return;
+    }
+
+    setGenerating(true);
+    setProgress(0);
+    setProgressMessage('Initializing Benchmark...');
+
+    try {
+        const numParticles = 50000;
+        const numFrames = 60;
+
+        const success = await initRealTimeSimulation({
+            numParticles,
+            numSnapshots: 0,
+            deltaT: 0.016,
+            onProgress: (p, msg) => {
+                setProgress(p);
+                setProgressMessage(msg);
+            }
+        });
+
+        if (!success || !activeSimulation) {
+            throw new Error("Failed to init simulation for benchmark");
+        }
+
+        setProgressMessage(`Benchmarking ${numParticles.toLocaleString()} particles...`);
+
+        // Run benchmark
+        const start = performance.now();
+        for (let i = 0; i < numFrames; i++) {
+            activeSimulation.step(0.016);
+            // We must wait for GPU to finish to measure time accurately?
+            // step() submits work. getParticleData() waits for it.
+            // So we read back every frame to simulate rendering load + sync.
+            await activeSimulation.getParticleData();
+
+            setProgress(((i + 1) / numFrames) * 100);
+        }
+        const end = performance.now();
+
+        const totalTime = end - start;
+        const avgFrameTime = totalTime / numFrames;
+        const fps = 1000 / avgFrameTime;
+
+        const msg = `Benchmark Result: ${fps.toFixed(1)} FPS (${avgFrameTime.toFixed(1)}ms/frame)`;
+        console.log(msg);
+        setStatusMessage(msg);
+
+        // Clean up or leave it running?
+        // Let's leave it in a "done" state but maybe not running loop
+        setNBodyPlaying(false);
+
+    } catch (e) {
+        console.error("Benchmark failed", e);
+        setStatusMessage("Benchmark Failed: " + (e as Error).message);
+    } finally {
+        setGenerating(false);
     }
   };
 
@@ -122,11 +183,15 @@ export function NBodyControls() {
               }}
             />
           </div>
-          <div style={{ marginTop: '5px', fontSize: '11px' }}>{progressMessage}</div>
+          <div style={{ marginTop: '5px', fontSize: '11px', whiteSpace: 'pre-wrap' }} id="progress-message">{progressMessage}</div>
         </div>
       ) : (
         <div className="demo-notice">
-            {nbody.isRealTime ? 'Click "Start Simulation" to run in real-time!' : 'Click "Generate Demo" to see particles in motion!'}
+            {statusMessage ? (
+                <span id="status-message" style={{ fontWeight: 'bold' }}>{statusMessage}</span>
+            ) : (
+                nbody.isRealTime ? 'Click "Start Simulation" to run in real-time!' : 'Click "Generate Demo" to see particles in motion!'
+            )}
         </div>
       )}
 
@@ -177,10 +242,15 @@ export function NBodyControls() {
         />
       </div>
 
-      <div className="control-group">
-        <button className="primary" onClick={handleGenerate} disabled={generating}>
+      <div className="control-group" style={{ display: 'flex', gap: '8px' }}>
+        <button className="primary" onClick={handleGenerate} disabled={generating} style={{ flex: 2 }}>
           {nbody.isRealTime ? 'Start Simulation' : 'Generate Demo Data'}
         </button>
+        {nbody.isRealTime && (
+            <button className="secondary" onClick={handleBenchmark} disabled={generating} style={{ flex: 1, fontSize: '11px', padding: '4px' }}>
+                Benchmark
+            </button>
+        )}
       </div>
 
       {!nbody.isRealTime && (
