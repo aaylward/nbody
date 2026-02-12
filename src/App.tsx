@@ -1,5 +1,5 @@
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { OrbitControls, Stats } from '@react-three/drei';
 import { useSimulationStore } from './store/useSimulationStore';
 import { NBodyVisualization } from './components/NBodyVisualization';
 import { MonteCarloVisualization } from './components/MonteCarloVisualization';
@@ -24,6 +24,7 @@ function App() {
           <ambientLight intensity={2} />
           <directionalLight position={[1, 1, 1]} intensity={0.5} />
           <OrbitControls enableDamping dampingFactor={0.05} />
+          <Stats />
 
           {mode === 'nbody' ? <NBodyVisualization /> : <MonteCarloVisualization />}
         </Canvas>
