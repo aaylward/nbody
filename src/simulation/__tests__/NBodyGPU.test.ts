@@ -38,6 +38,8 @@ const mockDevice = {
   queue: mockQueue,
 };
 
+const mockGPUDevice = mockDevice as unknown as GPUDevice;
+
 // Polyfill globals needed by nbody.ts
 global.navigator = {
   gpu: {
@@ -45,9 +47,10 @@ global.navigator = {
       requestDevice: vi.fn().mockResolvedValue(mockDevice),
     }),
   },
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
-// @ts-ignore
+// @ts-expect-error - Partial mock
 global.GPUBufferUsage = {
   STORAGE: 1,
   COPY_DST: 2,
@@ -56,7 +59,7 @@ global.GPUBufferUsage = {
   MAP_READ: 16,
 };
 
-// @ts-ignore
+// @ts-expect-error - Partial mock
 global.GPUMapMode = {
   READ: 1,
 };
@@ -69,7 +72,7 @@ describe('NBodyGPU', () => {
   it('should initialize successfully', async () => {
     await initGPU();
     const numParticles = 100;
-    const sim = new NBodyGPU(mockDevice as any, numParticles);
+    const sim = new NBodyGPU(mockGPUDevice, numParticles);
     await sim.init(0.01);
 
     // Verify buffer creation
@@ -84,7 +87,7 @@ describe('NBodyGPU', () => {
 
   it('should step simulation correctly (4 passes)', async () => {
     const numParticles = 100;
-    const sim = new NBodyGPU(mockDevice as any, numParticles);
+    const sim = new NBodyGPU(mockGPUDevice, numParticles);
     await sim.init(0.01);
 
     sim.step(0.01);
@@ -98,7 +101,7 @@ describe('NBodyGPU', () => {
 
   it('should read back particle data', async () => {
     const numParticles = 100;
-    const sim = new NBodyGPU(mockDevice as any, numParticles);
+    const sim = new NBodyGPU(mockGPUDevice, numParticles);
     await sim.init(0.01);
 
     await sim.getParticleData();
@@ -109,9 +112,28 @@ describe('NBodyGPU', () => {
     expect(mockBuffer.unmap).toHaveBeenCalled();
   });
 
+  it('should read back particle data into provided buffer', async () => {
+    const numParticles = 100;
+    const sim = new NBodyGPU(mockGPUDevice, numParticles);
+    await sim.init(0.01);
+
+    const expectedSize = numParticles * GPU_FLOATS_PER_PARTICLE;
+    // Mock getMappedRange to return exact size buffer for this test
+    mockBuffer.getMappedRange.mockReturnValueOnce(new Float32Array(expectedSize).buffer);
+
+    const outData = new Float32Array(expectedSize);
+    const result = await sim.getParticleData(outData);
+
+    expect(result).toBe(outData); // Should return the same buffer
+    expect(mockCommandEncoder.copyBufferToBuffer).toHaveBeenCalled();
+    expect(mockBuffer.mapAsync).toHaveBeenCalled();
+    expect(mockBuffer.getMappedRange).toHaveBeenCalled();
+    expect(mockBuffer.unmap).toHaveBeenCalled();
+  });
+
   it('should handle large number of particles (1M)', async () => {
     const numParticles = 1000000;
-    const sim = new NBodyGPU(mockDevice as any, numParticles);
+    const sim = new NBodyGPU(mockGPUDevice, numParticles);
 
     // Mock getMappedRange to return enough buffer for 1M particles
     // 1M * 8 floats * 4 bytes = 32MB
