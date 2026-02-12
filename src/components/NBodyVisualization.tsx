@@ -30,6 +30,7 @@ export function NBodyVisualization() {
     geom.setAttribute('velocity', new THREE.InterleavedBufferAttribute(buffer, 3, 4));
 
     return geom;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nbody.isRealTime, nbody.simulationTimestamp]); // Re-create on new simulation (timestamp change)
 
   // Shader Material for Real-time

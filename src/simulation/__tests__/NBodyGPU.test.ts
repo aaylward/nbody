@@ -45,9 +45,9 @@ global.navigator = {
       requestDevice: vi.fn().mockResolvedValue(mockDevice),
     }),
   },
-} as any;
+} as unknown as Navigator;
 
-// @ts-ignore
+// @ts-expect-error - Polyfilling missing global
 global.GPUBufferUsage = {
   STORAGE: 1,
   COPY_DST: 2,
@@ -56,7 +56,7 @@ global.GPUBufferUsage = {
   MAP_READ: 16,
 };
 
-// @ts-ignore
+// @ts-expect-error - Polyfilling missing global
 global.GPUMapMode = {
   READ: 1,
 };
@@ -69,7 +69,7 @@ describe('NBodyGPU', () => {
   it('should initialize successfully', async () => {
     await initGPU();
     const numParticles = 100;
-    const sim = new NBodyGPU(mockDevice as any, numParticles);
+    const sim = new NBodyGPU(mockDevice as unknown as GPUDevice, numParticles);
     await sim.init(0.01);
 
     // Verify buffer creation
@@ -84,7 +84,7 @@ describe('NBodyGPU', () => {
 
   it('should step simulation correctly (4 passes)', async () => {
     const numParticles = 100;
-    const sim = new NBodyGPU(mockDevice as any, numParticles);
+    const sim = new NBodyGPU(mockDevice as unknown as GPUDevice, numParticles);
     await sim.init(0.01);
 
     sim.step(0.01);
@@ -98,7 +98,7 @@ describe('NBodyGPU', () => {
 
   it('should read back particle data', async () => {
     const numParticles = 100;
-    const sim = new NBodyGPU(mockDevice as any, numParticles);
+    const sim = new NBodyGPU(mockDevice as unknown as GPUDevice, numParticles);
     await sim.init(0.01);
 
     await sim.getParticleData();
@@ -111,7 +111,7 @@ describe('NBodyGPU', () => {
 
   it('should handle large number of particles (1M)', async () => {
     const numParticles = 1000000;
-    const sim = new NBodyGPU(mockDevice as any, numParticles);
+    const sim = new NBodyGPU(mockDevice as unknown as GPUDevice, numParticles);
 
     // Mock getMappedRange to return enough buffer for 1M particles
     // 1M * 8 floats * 4 bytes = 32MB
