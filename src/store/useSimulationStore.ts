@@ -22,6 +22,8 @@ interface SimulationStore {
     numParticles: number;
     numSnapshots: number;
     deltaT: number;
+    isRealTime: boolean;
+    simulationTimestamp: number;
   };
   setNBodySnapshots: (snapshots: Float32Array[]) => void;
   setNBodyFrame: (frame: number) => void;
@@ -31,6 +33,8 @@ interface SimulationStore {
   setNBodyNumParticles: (count: number) => void;
   setNBodyNumSnapshots: (count: number) => void;
   setNBodyDeltaT: (deltaT: number) => void;
+  setNBodyRealTime: (isRealTime: boolean) => void;
+  setNBodySimulationTimestamp: (timestamp: number) => void;
 
   // Monte Carlo state
   montecarlo: {
@@ -70,6 +74,8 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
     numParticles: 1000,
     numSnapshots: 500,
     deltaT: 0.05,
+    isRealTime: false,
+    simulationTimestamp: 0,
   },
   setNBodySnapshots: (snapshots) =>
     set((state) => ({
@@ -89,6 +95,10 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
     set((state) => ({ nbody: { ...state.nbody, numSnapshots: count } })),
   setNBodyDeltaT: (deltaT) =>
     set((state) => ({ nbody: { ...state.nbody, deltaT } })),
+  setNBodyRealTime: (isRealTime) =>
+    set((state) => ({ nbody: { ...state.nbody, isRealTime } })),
+  setNBodySimulationTimestamp: (timestamp) =>
+    set((state) => ({ nbody: { ...state.nbody, simulationTimestamp: timestamp } })),
 
   montecarlo: {
     photons: [],
