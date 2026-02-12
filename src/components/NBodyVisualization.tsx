@@ -2,7 +2,6 @@ import { useRef, useMemo, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useSimulationStore } from '../store/useSimulationStore';
-import { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { extractPositions, calculateColors, getCenterOfMass, getParticleCount } from '../simulation/particleData';
 import { activeSimulation, GPU_FLOATS_PER_PARTICLE } from '../simulation/nbody';
 
@@ -30,6 +29,7 @@ export function NBodyVisualization() {
     geom.setAttribute('velocity', new THREE.InterleavedBufferAttribute(buffer, 3, 4));
 
     return geom;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nbody.isRealTime, nbody.simulationTimestamp]); // Re-create on new simulation (timestamp change)
 
   // Shader Material for Real-time
@@ -104,13 +104,12 @@ export function NBodyVisualization() {
          activeSimulation.step(nbody.deltaT);
 
          // Readback
-         activeSimulation.getParticleData().then((data) => {
-             // Update buffer
-             const attr = realTimeGeometry.getAttribute('position') as THREE.InterleavedBufferAttribute;
-             const buffer = attr.data;
-             buffer.set(data, 0);
-             buffer.needsUpdate = true;
+         const attr = realTimeGeometry.getAttribute('position') as THREE.InterleavedBufferAttribute;
+         const buffer = attr.data;
+         const outData = buffer.array as Float32Array;
 
+         activeSimulation.getParticleData(outData).then(() => {
+             buffer.needsUpdate = true;
              isReadingBack.current = false;
          }).catch(e => {
              console.error("Readback failed", e);
@@ -124,10 +123,13 @@ export function NBodyVisualization() {
         const snapshot = nbody.snapshots[nbody.currentFrame];
         if (snapshot && getParticleCount(snapshot) > 0) {
             const centerOfMass = getCenterOfMass(snapshot);
-            if (controls && controls instanceof OrbitControlsImpl) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if (controls && (controls as any).target) {
                 // Smoothly update the orbit controls target to follow the center of mass
-                controls.target.set(centerOfMass.x, centerOfMass.y, centerOfMass.z);
-                controls.update();
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (controls as any).target.set(centerOfMass.x, centerOfMass.y, centerOfMass.z);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (controls as any).update();
             }
         }
 

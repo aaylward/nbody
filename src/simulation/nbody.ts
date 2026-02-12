@@ -316,6 +316,7 @@ export class NBodyGPU {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   step(_dt: number) {
     // We could update deltaT in uniform buffer here if it changes,
     // but for now we assume it's constant or update it sparingly.
@@ -355,7 +356,7 @@ export class NBodyGPU {
     this.device.queue.submit([commandEncoder.finish()]);
   }
 
-  async getParticleData(): Promise<Float32Array> {
+  async getParticleData(outData?: Float32Array): Promise<Float32Array> {
     const commandEncoder = this.device.createCommandEncoder();
     commandEncoder.copyBufferToBuffer(
       this.particleBuffer,
@@ -367,7 +368,15 @@ export class NBodyGPU {
     this.device.queue.submit([commandEncoder.finish()]);
 
     await this.stagingBuffer.mapAsync(GPUMapMode.READ);
-    const data = new Float32Array(this.stagingBuffer.getMappedRange().slice(0));
+    const mappedRange = this.stagingBuffer.getMappedRange();
+
+    if (outData) {
+      outData.set(new Float32Array(mappedRange));
+      this.stagingBuffer.unmap();
+      return outData;
+    }
+
+    const data = new Float32Array(mappedRange.slice(0));
     this.stagingBuffer.unmap();
 
     return data;
