@@ -314,6 +314,19 @@ export class NBodyGPU {
         { binding: 2, resource: { buffer: this.uniformBuffer } },
       ],
     });
+
+    // Compute initial forces so step() can skip the first calculation
+    this.computeForces();
+  }
+
+  computeForces() {
+    const commandEncoder = this.device.createCommandEncoder();
+    const pass = commandEncoder.beginComputePass();
+    pass.setPipeline(this.forcePipeline);
+    pass.setBindGroup(0, this.forceBindGroup);
+    pass.dispatchWorkgroups(this.workgroupCount);
+    pass.end();
+    this.device.queue.submit([commandEncoder.finish()]);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -325,14 +338,11 @@ export class NBodyGPU {
 
     const commandEncoder = this.device.createCommandEncoder();
 
-    // 1. Compute forces at current positions
-    const forcePass1 = commandEncoder.beginComputePass();
-    forcePass1.setPipeline(this.forcePipeline);
-    forcePass1.setBindGroup(0, this.forceBindGroup);
-    forcePass1.dispatchWorkgroups(this.workgroupCount);
-    forcePass1.end();
+    // Optimization: We skip the first force calculation because forces are
+    // already computed at the end of the previous step (or in init).
+    // This reduces the number of expensive O(N^2) compute passes by 50%.
 
-    // 2. First kick + drift
+    // 1. First kick + drift
     const kickDriftPass = commandEncoder.beginComputePass();
     kickDriftPass.setPipeline(this.kickDriftPipeline);
     kickDriftPass.setBindGroup(0, this.kickDriftBindGroup);
@@ -510,6 +520,49 @@ function convertGPUDataToCompact(gpuData: Float32Array, numParticles: number): F
   return snapshot;
 }
 
+function computeForcesCPU(particles: Float32Array, forces: Float32Array, numParticles: number) {
+  const G = 1.0;
+  const softening = 2.0;
+
+  forces.fill(0);
+
+  for (let i = 0; i < numParticles; i++) {
+    const iOffset = i * FLOATS_PER_PARTICLE;
+    const ix = particles[iOffset + OFFSET_X];
+    const iy = particles[iOffset + OFFSET_Y];
+    const iz = particles[iOffset + OFFSET_Z];
+    const im = particles[iOffset + OFFSET_MASS];
+
+    for (let j = i + 1; j < numParticles; j++) {
+      const jOffset = j * FLOATS_PER_PARTICLE;
+      const jx = particles[jOffset + OFFSET_X];
+      const jy = particles[jOffset + OFFSET_Y];
+      const jz = particles[jOffset + OFFSET_Z];
+      const jm = particles[jOffset + OFFSET_MASS];
+
+      const dx = jx - ix;
+      const dy = jy - iy;
+      const dz = jz - iz;
+
+      const r2 = dx * dx + dy * dy + dz * dz + softening * softening;
+      const r = Math.sqrt(r2);
+      const f = (G * im * jm) / r2;
+
+      const fx = (f * dx) / r;
+      const fy = (f * dy) / r;
+      const fz = (f * dz) / r;
+
+      forces[i * 3 + 0] += fx;
+      forces[i * 3 + 1] += fy;
+      forces[i * 3 + 2] += fz;
+
+      forces[j * 3 + 0] -= fx;
+      forces[j * 3 + 1] -= fy;
+      forces[j * 3 + 2] -= fz;
+    }
+  }
+}
+
 async function generateNBodyCPU(
   options: NBodySimulationOptions
 ): Promise<Float32Array[]> {
@@ -551,12 +604,14 @@ async function generateNBodyCPU(
   // Remove net momentum to prevent drift
   removeCenterOfMassVelocity(particles);
 
-  const G = 1.0;
-  const softening = 2.0;
   const chunkSize = 50;
 
   // Pre-allocate forces array
   const forces = new Float32Array(numParticles * 3);
+
+  // Compute initial forces (O(N²)) - Pre-loop optimization
+  // Forces calculated here are used for the first kick
+  computeForcesCPU(particles, forces, numParticles);
 
   for (let chunkStart = 0; chunkStart < numSnapshots; chunkStart += chunkSize) {
     const chunkEnd = Math.min(chunkStart + chunkSize, numSnapshots);
@@ -565,45 +620,8 @@ async function generateNBodyCPU(
       // Clone snapshot
       snapshots.push(cloneParticleData(particles));
 
-      // Reset forces
-      forces.fill(0);
-
-      // Compute forces (O(N²) all-pairs)
-      for (let i = 0; i < numParticles; i++) {
-        const iOffset = i * FLOATS_PER_PARTICLE;
-        const ix = particles[iOffset + OFFSET_X];
-        const iy = particles[iOffset + OFFSET_Y];
-        const iz = particles[iOffset + OFFSET_Z];
-        const im = particles[iOffset + OFFSET_MASS];
-
-        for (let j = i + 1; j < numParticles; j++) {
-          const jOffset = j * FLOATS_PER_PARTICLE;
-          const jx = particles[jOffset + OFFSET_X];
-          const jy = particles[jOffset + OFFSET_Y];
-          const jz = particles[jOffset + OFFSET_Z];
-          const jm = particles[jOffset + OFFSET_MASS];
-
-          const dx = jx - ix;
-          const dy = jy - iy;
-          const dz = jz - iz;
-
-          const r2 = dx * dx + dy * dy + dz * dz + softening * softening;
-          const r = Math.sqrt(r2);
-          const f = (G * im * jm) / r2;
-
-          const fx = (f * dx) / r;
-          const fy = (f * dy) / r;
-          const fz = (f * dz) / r;
-
-          forces[i * 3 + 0] += fx;
-          forces[i * 3 + 1] += fy;
-          forces[i * 3 + 2] += fz;
-
-          forces[j * 3 + 0] -= fx;
-          forces[j * 3 + 1] -= fy;
-          forces[j * 3 + 2] -= fz;
-        }
-      }
+      // Optimization: Use forces calculated at the end of the previous step (or init)
+      // We do NOT recalculate forces here.
 
       // Leapfrog integration (kick-drift-kick)
       // Half-step velocity update (kick)
@@ -630,42 +648,7 @@ async function generateNBodyCPU(
       }
 
       // Recompute forces at new positions
-      forces.fill(0);
-      for (let i = 0; i < numParticles; i++) {
-        const iOffset = i * FLOATS_PER_PARTICLE;
-        const ix = particles[iOffset + OFFSET_X];
-        const iy = particles[iOffset + OFFSET_Y];
-        const iz = particles[iOffset + OFFSET_Z];
-        const im = particles[iOffset + OFFSET_MASS];
-
-        for (let j = i + 1; j < numParticles; j++) {
-          const jOffset = j * FLOATS_PER_PARTICLE;
-          const jx = particles[jOffset + OFFSET_X];
-          const jy = particles[jOffset + OFFSET_Y];
-          const jz = particles[jOffset + OFFSET_Z];
-          const jm = particles[jOffset + OFFSET_MASS];
-
-          const dx = jx - ix;
-          const dy = jy - iy;
-          const dz = jz - iz;
-
-          const r2 = dx * dx + dy * dy + dz * dz + softening * softening;
-          const r = Math.sqrt(r2);
-          const f = (G * im * jm) / r2;
-
-          const fx = (f * dx) / r;
-          const fy = (f * dy) / r;
-          const fz = (f * dz) / r;
-
-          forces[i * 3 + 0] += fx;
-          forces[i * 3 + 1] += fy;
-          forces[i * 3 + 2] += fz;
-
-          forces[j * 3 + 0] -= fx;
-          forces[j * 3 + 1] -= fy;
-          forces[j * 3 + 2] -= fz;
-        }
-      }
+      computeForcesCPU(particles, forces, numParticles);
 
       // Half-step velocity update (kick)
       for (let i = 0; i < numParticles; i++) {
