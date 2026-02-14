@@ -532,6 +532,7 @@ function computeForcesCPU(particles: Float32Array, forces: Float32Array, numPart
     const iy = particles[iOffset + OFFSET_Y];
     const iz = particles[iOffset + OFFSET_Z];
     const im = particles[iOffset + OFFSET_MASS];
+    const Gim = G * im;
 
     for (let j = i + 1; j < numParticles; j++) {
       const jOffset = j * FLOATS_PER_PARTICLE;
@@ -546,11 +547,11 @@ function computeForcesCPU(particles: Float32Array, forces: Float32Array, numPart
 
       const r2 = dx * dx + dy * dy + dz * dz + softening * softening;
       const r = Math.sqrt(r2);
-      const f = (G * im * jm) / r2;
+      const f = (Gim * jm) / (r2 * r);
 
-      const fx = (f * dx) / r;
-      const fy = (f * dy) / r;
-      const fz = (f * dz) / r;
+      const fx = f * dx;
+      const fy = f * dy;
+      const fz = f * dz;
 
       forces[i * 3 + 0] += fx;
       forces[i * 3 + 1] += fy;
