@@ -523,6 +523,7 @@ function convertGPUDataToCompact(gpuData: Float32Array, numParticles: number): F
 function computeForcesCPU(particles: Float32Array, forces: Float32Array, numParticles: number) {
   const G = 1.0;
   const softening = 2.0;
+  const softeningSq = softening * softening;
 
   forces.fill(0);
 
@@ -534,8 +535,21 @@ function computeForcesCPU(particles: Float32Array, forces: Float32Array, numPart
     const im = particles[iOffset + OFFSET_MASS];
     const Gim = G * im;
 
+    // Cache force indices for i
+    const iFxIndex = i * 3;
+    const iFyIndex = iFxIndex + 1;
+    const iFzIndex = iFxIndex + 2;
+
+    // Accumulate forces in local variables
+    let fx_i = 0;
+    let fy_i = 0;
+    let fz_i = 0;
+
+    // Pre-calculate starting offset for j
+    let jOffset = (i + 1) * FLOATS_PER_PARTICLE;
+    let jFIndex = (i + 1) * 3;
+
     for (let j = i + 1; j < numParticles; j++) {
-      const jOffset = j * FLOATS_PER_PARTICLE;
       const jx = particles[jOffset + OFFSET_X];
       const jy = particles[jOffset + OFFSET_Y];
       const jz = particles[jOffset + OFFSET_Z];
@@ -545,7 +559,7 @@ function computeForcesCPU(particles: Float32Array, forces: Float32Array, numPart
       const dy = jy - iy;
       const dz = jz - iz;
 
-      const r2 = dx * dx + dy * dy + dz * dz + softening * softening;
+      const r2 = dx * dx + dy * dy + dz * dz + softeningSq;
       const r = Math.sqrt(r2);
       const f = (Gim * jm) / (r2 * r);
 
@@ -553,14 +567,25 @@ function computeForcesCPU(particles: Float32Array, forces: Float32Array, numPart
       const fy = f * dy;
       const fz = f * dz;
 
-      forces[i * 3 + 0] += fx;
-      forces[i * 3 + 1] += fy;
-      forces[i * 3 + 2] += fz;
+      // Accumulate for i (local vars)
+      fx_i += fx;
+      fy_i += fy;
+      fz_i += fz;
 
-      forces[j * 3 + 0] -= fx;
-      forces[j * 3 + 1] -= fy;
-      forces[j * 3 + 2] -= fz;
+      // Update for j (direct array access)
+      forces[jFIndex] -= fx;
+      forces[jFIndex + 1] -= fy;
+      forces[jFIndex + 2] -= fz;
+
+      // Increment offsets manually
+      jOffset += FLOATS_PER_PARTICLE;
+      jFIndex += 3;
     }
+
+    // Write back accumulated forces for i
+    forces[iFxIndex] += fx_i;
+    forces[iFyIndex] += fy_i;
+    forces[iFzIndex] += fz_i;
   }
 }
 
