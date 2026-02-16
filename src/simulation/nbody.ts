@@ -106,7 +106,8 @@ export class NBodyGPU {
 
             let r = particles[j].pos.xyz - pi;
             let r2 = dot(r, r) + SOFTENING * SOFTENING;
-            let invR = 1.0 / sqrt(r2);
+            // Optimization: Use fast inverse square root intrinsic
+            let invR = inverseSqrt(r2);
             let invR3 = invR * invR * invR;
             let f = G * mi * particles[j].vel.w * invR3;
 
@@ -650,7 +651,7 @@ async function generateNBodyCPU(
       // We do NOT recalculate forces here.
 
       // Leapfrog integration (kick-drift-kick)
-      // Half-step velocity update (kick)
+      // Optimization: Fuse Kick1 and Drift loops for better cache locality (1 pass instead of 2)
       for (let i = 0; i < numParticles; i++) {
         const offset = i * FLOATS_PER_PARTICLE;
         const mass = particles[offset + OFFSET_MASS];
@@ -659,15 +660,12 @@ async function generateNBodyCPU(
         const ay = forces[i * 3 + 1] / mass;
         const az = forces[i * 3 + 2] / mass;
 
+        // Kick 1
         particles[offset + OFFSET_VX] += ax * deltaT * 0.5;
         particles[offset + OFFSET_VY] += ay * deltaT * 0.5;
         particles[offset + OFFSET_VZ] += az * deltaT * 0.5;
-      }
 
-      // Full-step position update (drift)
-      for (let i = 0; i < numParticles; i++) {
-        const offset = i * FLOATS_PER_PARTICLE;
-
+        // Drift (uses updated velocity)
         particles[offset + OFFSET_X] += particles[offset + OFFSET_VX] * deltaT;
         particles[offset + OFFSET_Y] += particles[offset + OFFSET_VY] * deltaT;
         particles[offset + OFFSET_Z] += particles[offset + OFFSET_VZ] * deltaT;
