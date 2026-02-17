@@ -23,15 +23,16 @@ export interface NBodySimulationOptions {
 let gpuDevice: GPUDevice | null = null;
 
 // Constants for GPU layout (Optimized 32 bytes - 8 floats)
-export const GPU_FLOATS_PER_PARTICLE = 8;
-export const GPU_POS_X = 0;
-export const GPU_POS_Y = 1;
-export const GPU_POS_Z = 2;
-export const GPU_POS_PAD = 3;
-export const GPU_VEL_X = 4;
-export const GPU_VEL_Y = 5;
-export const GPU_VEL_Z = 6;
-export const GPU_MASS = 7; // Stored in vel.w
+// These match the layout in particleData.ts
+export const GPU_FLOATS_PER_PARTICLE = FLOATS_PER_PARTICLE;
+export const GPU_POS_X = OFFSET_X;
+export const GPU_POS_Y = OFFSET_Y;
+export const GPU_POS_Z = OFFSET_Z;
+export const GPU_POS_PAD = 3; // Unused in CPU layout (implicit padding)
+export const GPU_VEL_X = OFFSET_VX;
+export const GPU_VEL_Y = OFFSET_VY;
+export const GPU_VEL_Z = OFFSET_VZ;
+export const GPU_MASS = OFFSET_MASS; // Stored in vel.w
 
 export async function initGPU(): Promise<boolean> {
   if (!navigator.gpu) {
@@ -223,24 +224,8 @@ export class NBodyGPU {
     // Remove net momentum to prevent drift
     removeCenterOfMassVelocity(particles);
 
-    // Convert from compact format (7 floats) to GPU format (8 floats - 32 bytes)
-    const gpuParticleData = new Float32Array(this.numParticles * GPU_FLOATS_PER_PARTICLE);
-    for (let i = 0; i < this.numParticles; i++) {
-      const srcOffset = i * FLOATS_PER_PARTICLE;
-      const dstOffset = i * GPU_FLOATS_PER_PARTICLE;
-
-      // pos.xyz
-      gpuParticleData[dstOffset + GPU_POS_X] = particles[srcOffset + OFFSET_X];
-      gpuParticleData[dstOffset + GPU_POS_Y] = particles[srcOffset + OFFSET_Y];
-      gpuParticleData[dstOffset + GPU_POS_Z] = particles[srcOffset + OFFSET_Z];
-      gpuParticleData[dstOffset + GPU_POS_PAD] = 0; // Padding (pos.w)
-
-      // vel.xyz + mass (vel.w)
-      gpuParticleData[dstOffset + GPU_VEL_X] = particles[srcOffset + OFFSET_VX];
-      gpuParticleData[dstOffset + GPU_VEL_Y] = particles[srcOffset + OFFSET_VY];
-      gpuParticleData[dstOffset + GPU_VEL_Z] = particles[srcOffset + OFFSET_VZ];
-      gpuParticleData[dstOffset + GPU_MASS] = particles[srcOffset + OFFSET_MASS];
-    }
+    // CPU layout now matches GPU layout (8 floats - 32 bytes), so we can use it directly
+    const gpuParticleData = particles;
 
     // Create Buffers
     this.particleBuffer = this.device.createBuffer({
@@ -452,7 +437,7 @@ async function generateNBodyGPU(
 
   // Collect initial state
   const initialData = await sim.getParticleData();
-  snapshots.push(convertGPUDataToCompact(initialData, numParticles));
+  snapshots.push(convertGPUDataToCompact(initialData));
 
   for (let step = 0; step < numSnapshots; step++) {
     sim.step(deltaT);
@@ -473,7 +458,7 @@ async function generateNBodyGPU(
          return snapshots;
       }
 
-      snapshots.push(convertGPUDataToCompact(gpuData, numParticles));
+      snapshots.push(convertGPUDataToCompact(gpuData));
     }
 
     if (step % transferInterval === 0) {
@@ -504,21 +489,9 @@ async function generateNBodyGPU(
   return fullSnapshots;
 }
 
-function convertGPUDataToCompact(gpuData: Float32Array, numParticles: number): Float32Array {
-  const snapshot = createParticleArray(numParticles);
-  for (let i = 0; i < numParticles; i++) {
-    const gpuIdx = i * GPU_FLOATS_PER_PARTICLE;
-    const compactOffset = i * FLOATS_PER_PARTICLE;
-
-    snapshot[compactOffset + OFFSET_X] = gpuData[gpuIdx + GPU_POS_X];
-    snapshot[compactOffset + OFFSET_Y] = gpuData[gpuIdx + GPU_POS_Y];
-    snapshot[compactOffset + OFFSET_Z] = gpuData[gpuIdx + GPU_POS_Z];
-    snapshot[compactOffset + OFFSET_VX] = gpuData[gpuIdx + GPU_VEL_X];
-    snapshot[compactOffset + OFFSET_VY] = gpuData[gpuIdx + GPU_VEL_Y];
-    snapshot[compactOffset + OFFSET_VZ] = gpuData[gpuIdx + GPU_VEL_Z];
-    snapshot[compactOffset + OFFSET_MASS] = gpuData[gpuIdx + GPU_MASS];
-  }
-  return snapshot;
+function convertGPUDataToCompact(gpuData: Float32Array): Float32Array {
+  // Since formats match, we just return a copy of the data
+  return new Float32Array(gpuData);
 }
 
 function computeForcesCPU(particles: Float32Array, forces: Float32Array, numParticles: number) {

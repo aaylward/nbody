@@ -303,8 +303,8 @@ describe('particleData', () => {
         .fill(null)
         .map(() => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mass: 1 }));
 
-      // TypedArray: 10000 particles × 7 floats × 4 bytes = 280KB
-      expect(typedBytes).toBe(280000);
+      // TypedArray: 10000 particles × 8 floats × 4 bytes = 320KB
+      expect(typedBytes).toBe(320000);
 
       // Object arrays typically use 10-20× more memory due to object overhead
       // We can't measure exact object memory in JS, but we know:

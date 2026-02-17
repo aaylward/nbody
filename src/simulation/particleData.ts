@@ -1,23 +1,26 @@
 /**
  * Efficient TypedArray-based particle data storage
  *
- * Each particle is stored as 7 consecutive floats:
- * [x, y, z, vx, vy, vz, mass]
+ * Each particle is stored as 8 consecutive floats (32 bytes):
+ * [x, y, z, pad, vx, vy, vz, mass]
+ *
+ * The padding ensures 32-byte alignment for better cache locality and SIMD,
+ * and matches the GPU layout for direct memory transfer.
  *
  * This reduces memory overhead by ~70% compared to object arrays
  * and enables efficient GPU transfer and processing.
  */
 
-export const FLOATS_PER_PARTICLE = 7;
+export const FLOATS_PER_PARTICLE = 8;
 
 // Offsets within each particle's data
 export const OFFSET_X = 0;
 export const OFFSET_Y = 1;
 export const OFFSET_Z = 2;
-export const OFFSET_VX = 3;
-export const OFFSET_VY = 4;
-export const OFFSET_VZ = 5;
-export const OFFSET_MASS = 6;
+export const OFFSET_VX = 4;
+export const OFFSET_VY = 5;
+export const OFFSET_VZ = 6;
+export const OFFSET_MASS = 7;
 
 /**
  * Create a new particle data array
