@@ -237,6 +237,19 @@ describe('particleData', () => {
       expect(positions[4]).toBe(5);
       expect(positions[5]).toBe(6);
     });
+
+    it('should write to output buffer if provided', () => {
+      const data = createParticleArray(2);
+      setParticle(data, 0, { x: 1, y: 2, z: 3, vx: 0, vy: 0, vz: 0 });
+      setParticle(data, 1, { x: 4, y: 5, z: 6, vx: 0, vy: 0, vz: 0 });
+
+      const out = new Float32Array(6);
+      const result = extractPositions(data, out);
+
+      expect(result).toBe(out); // Should return the same buffer instance
+      expect(out[0]).toBe(1);
+      expect(out[5]).toBe(6);
+    });
   });
 
   describe('extractVelocities', () => {
@@ -287,6 +300,17 @@ describe('particleData', () => {
       // Should be clamped to max color values
       expect(colors[0]).toBe(1.0);
       expect(colors[2]).toBe(0.5);
+    });
+
+    it('should write to output buffer if provided', () => {
+      const data = createParticleArray(1);
+      setParticle(data, 0, { x: 0, y: 0, z: 0, vx: 20, vy: 0, vz: 0 });
+
+      const out = new Float32Array(3);
+      const result = calculateColors(data, 10, out);
+
+      expect(result).toBe(out);
+      expect(out[0]).toBe(1.0);
     });
   });
 

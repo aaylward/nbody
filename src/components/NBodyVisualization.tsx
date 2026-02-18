@@ -70,22 +70,46 @@ export function NBodyVisualization() {
       });
   }, []);
 
-  const snapshotGeometry = useMemo(() => {
-    if (nbody.isRealTime) return null;
-    const snapshot = nbody.snapshots[nbody.currentFrame];
-    if (!snapshot) return null;
+  // Persistent geometry for Snapshot mode to avoid reallocation
+  const snapshotGeometry = useMemo(() => new THREE.BufferGeometry(), []);
 
-    const geom = new THREE.BufferGeometry();
+  const currentSnapshot = nbody.snapshots[nbody.currentFrame];
 
-    // Extract positions and colors directly from TypedArray
-    const positions = extractPositions(snapshot);
-    const colors = calculateColors(snapshot, 10);
+  // Optimization: Memoize center of mass to avoid O(N) calculation every frame
+  const centerOfMass = useMemo(() => {
+    if (!currentSnapshot || getParticleCount(currentSnapshot) === 0) return null;
+    return getCenterOfMass(currentSnapshot);
+  }, [currentSnapshot]);
 
-    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  // Update Snapshot Geometry
+  useEffect(() => {
+    if (nbody.isRealTime || !currentSnapshot) return;
 
-    return geom;
-  }, [nbody.isRealTime, nbody.snapshots, nbody.currentFrame]);
+    const count = getParticleCount(currentSnapshot);
+    const geom = snapshotGeometry;
+
+    // Resize or Init buffers if needed
+    let positions = geom.getAttribute('position') as THREE.BufferAttribute;
+    let colors = geom.getAttribute('color') as THREE.BufferAttribute;
+
+    if (!positions || positions.count !== count) {
+        // Reallocate only if size changes
+        positions = new THREE.BufferAttribute(new Float32Array(count * 3), 3);
+        colors = new THREE.BufferAttribute(new Float32Array(count * 3), 3);
+        geom.setAttribute('position', positions);
+        geom.setAttribute('color', colors);
+    }
+
+    // Optimization: Write directly to existing buffers to avoid allocation
+    extractPositions(currentSnapshot, positions.array as Float32Array);
+    calculateColors(currentSnapshot, 10, colors.array as Float32Array);
+
+    positions.needsUpdate = true;
+    colors.needsUpdate = true;
+
+    geom.computeBoundingSphere();
+
+  }, [nbody.isRealTime, currentSnapshot, snapshotGeometry]);
 
   // Cleanup geometry on unmount
   useEffect(() => {
@@ -120,9 +144,7 @@ export function NBodyVisualization() {
 
     } else {
         // Snapshot mode
-        const snapshot = nbody.snapshots[nbody.currentFrame];
-        if (snapshot && getParticleCount(snapshot) > 0) {
-            const centerOfMass = getCenterOfMass(snapshot);
+        if (centerOfMass) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             if (controls && (controls as any).target) {
                 // Smoothly update the orbit controls target to follow the center of mass
