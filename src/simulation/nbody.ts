@@ -1,6 +1,5 @@
 import {
   createParticleArray,
-  setParticle,
   cloneParticleData,
   removeCenterOfMassVelocity,
   FLOATS_PER_PARTICLE,
@@ -12,6 +11,7 @@ import {
   OFFSET_VZ,
   OFFSET_MASS,
 } from './particleData';
+import { initializeNBodyParticles } from './initialization';
 
 export interface NBodySimulationOptions {
   numParticles: number;
@@ -189,40 +189,8 @@ export class NBodyGPU {
   }
 
   async init(deltaT: number) {
-    // Initialize particles using TypedArray (CPU side first)
-    const particles = createParticleArray(this.numParticles);
-
-    // Central star
-    setParticle(particles, 0, {
-      x: 0,
-      y: 0,
-      z: 0,
-      vx: 0,
-      vy: 0,
-      vz: 0,
-      mass: 5000,
-    });
-
-    // Orbiting particles
-    for (let i = 1; i < this.numParticles; i++) {
-      const r = 20 + Math.random() * 60;
-      const theta = Math.random() * Math.PI * 2;
-      const z = (Math.random() - 0.5) * 5;
-
-      const x = r * Math.cos(theta);
-      const y = r * Math.sin(theta);
-
-      // Circular orbit velocity: v = sqrt(GM/r) where G=1.0, M=5000
-      const v = Math.sqrt(5000 / r);
-      const vx = -v * Math.sin(theta) + (Math.random() - 0.5) * 0.5;
-      const vy = v * Math.cos(theta) + (Math.random() - 0.5) * 0.5;
-      const vz = (Math.random() - 0.5) * 0.2;
-
-      setParticle(particles, i, { x, y, z, vx, vy, vz, mass: 1 });
-    }
-
-    // Remove net momentum to prevent drift
-    removeCenterOfMassVelocity(particles);
+    // Initialize particles using centralized logic
+    const particles = initializeNBodyParticles(this.numParticles);
 
     // CPU layout now matches GPU layout (8 floats - 32 bytes), so we can use it directly
     const gpuParticleData = particles;
@@ -569,40 +537,7 @@ async function generateNBodyCPU(
   const { numParticles, numSnapshots, deltaT, onProgress } = options;
   const snapshots: Float32Array[] = [];
 
-  // Initialize particles using TypedArray
-  const particles = createParticleArray(numParticles);
-
-  // Central star
-  setParticle(particles, 0, {
-    x: 0,
-    y: 0,
-    z: 0,
-    vx: 0,
-    vy: 0,
-    vz: 0,
-    mass: 5000,
-  });
-
-  // Orbiting particles
-  for (let i = 1; i < numParticles; i++) {
-    const r = 20 + Math.random() * 60;
-    const theta = Math.random() * Math.PI * 2;
-    const z = (Math.random() - 0.5) * 5;
-
-    const x = r * Math.cos(theta);
-    const y = r * Math.sin(theta);
-
-    // Circular orbit velocity: v = sqrt(GM/r) where G=1.0, M=5000
-    const v = Math.sqrt(5000 / r);
-    const vx = -v * Math.sin(theta) + (Math.random() - 0.5) * 0.5;
-    const vy = v * Math.cos(theta) + (Math.random() - 0.5) * 0.5;
-    const vz = (Math.random() - 0.5) * 0.2;
-
-    setParticle(particles, i, { x, y, z, vx, vy, vz, mass: 1 });
-  }
-
-  // Remove net momentum to prevent drift
-  removeCenterOfMassVelocity(particles);
+  const particles = initializeNBodyParticles(numParticles);
 
   const chunkSize = 50;
 
