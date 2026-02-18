@@ -214,9 +214,9 @@ export function toParticleObjects(data: Float32Array): Array<{
 /**
  * Extract positions into a format suitable for THREE.js BufferAttribute
  */
-export function extractPositions(data: Float32Array): Float32Array {
+export function extractPositions(data: Float32Array, out?: Float32Array): Float32Array {
   const numParticles = getParticleCount(data);
-  const positions = new Float32Array(numParticles * 3);
+  const positions = out || new Float32Array(numParticles * 3);
 
   for (let i = 0; i < numParticles; i++) {
     const offset = i * FLOATS_PER_PARTICLE;
@@ -248,9 +248,13 @@ export function extractVelocities(data: Float32Array): Float32Array {
 /**
  * Calculate colors based on velocity magnitudes
  */
-export function calculateColors(data: Float32Array, maxVelocity = 10): Float32Array {
+export function calculateColors(
+  data: Float32Array,
+  maxVelocity = 10,
+  out?: Float32Array
+): Float32Array {
   const numParticles = getParticleCount(data);
-  const colors = new Float32Array(numParticles * 3);
+  const colors = out || new Float32Array(numParticles * 3);
 
   for (let i = 0; i < numParticles; i++) {
     const offset = i * FLOATS_PER_PARTICLE;
