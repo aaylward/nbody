@@ -2,7 +2,7 @@ import { useRef, useMemo, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useSimulationStore } from '../store/useSimulationStore';
-import { extractPositions, calculateColors, getCenterOfMass, getParticleCount } from '../simulation/particleData';
+import { getCenterOfMass, getParticleCount } from '../simulation/particleData';
 import { activeSimulation, GPU_FLOATS_PER_PARTICLE } from '../simulation/nbody';
 
 export function NBodyVisualization() {
@@ -32,25 +32,33 @@ export function NBodyVisualization() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nbody.isRealTime, nbody.simulationTimestamp]); // Re-create on new simulation (timestamp change)
 
-  // Shader Material for Real-time
-  const realTimeMaterial = useMemo(() => {
-      return new THREE.ShaderMaterial({
-          vertexShader: `
+  // Shared Shader Material for both Real-time and Snapshot modes
+  const particleMaterial = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uMaxVelocity: { value: 10.0 }, // Matches calculateColors maxVelocity
+        uSize: { value: 2.0 }, // Adjusted for visual parity
+      },
+      vertexShader: `
+            uniform float uMaxVelocity;
+            uniform float uSize;
             attribute vec3 velocity;
             varying vec3 vColor;
             void main() {
                 vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
                 gl_Position = projectionMatrix * mvPosition;
-                gl_PointSize = 2.0 * (300.0 / -mvPosition.z);
+                // Size attenuation
+                gl_PointSize = uSize * (300.0 / -mvPosition.z);
 
                 // Color based on velocity magnitude
                 float v = length(velocity);
-                // Adjust scaling based on simulation parameters (approximate)
-                float t = min(v / 5.0, 1.0);
+                float t = min(v / uMaxVelocity, 1.0);
+
+                // Blue-ish to Orange-ish gradient
                 vColor = mix(vec3(0.2, 0.5, 1.0), vec3(1.0, 0.8, 0.4), t);
             }
           `,
-          fragmentShader: `
+      fragmentShader: `
             varying vec3 vColor;
             void main() {
                 // Circular particle
@@ -64,10 +72,10 @@ export function NBodyVisualization() {
                 gl_FragColor = vec4(vColor, 0.8 * alpha);
             }
           `,
-          transparent: true,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-      });
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
   }, []);
 
   // Persistent geometry for Snapshot mode to avoid reallocation
@@ -88,24 +96,30 @@ export function NBodyVisualization() {
     const count = getParticleCount(currentSnapshot);
     const geom = snapshotGeometry;
 
-    // Resize or Init buffers if needed
-    let positions = geom.getAttribute('position') as THREE.BufferAttribute;
-    let colors = geom.getAttribute('color') as THREE.BufferAttribute;
+    // Check if we need to reinitialize buffer (size mismatch or first run)
+    const positionAttribute = geom.getAttribute('position') as THREE.InterleavedBufferAttribute;
 
-    if (!positions || positions.count !== count) {
-        // Reallocate only if size changes
-        positions = new THREE.BufferAttribute(new Float32Array(count * 3), 3);
-        colors = new THREE.BufferAttribute(new Float32Array(count * 3), 3);
-        geom.setAttribute('position', positions);
-        geom.setAttribute('color', colors);
+    if (!positionAttribute || positionAttribute.count !== count) {
+        // Create InterleavedBuffer
+        // We reuse the currentSnapshot array for the buffer if possible?
+        // No, InterleavedBuffer takes a TypedArray. snapshot data is TypedArray.
+        // We allocate a new buffer of the correct size to hold the interleaved data.
+        // Actually, currentSnapshot IS interleaved data (8 floats per particle).
+        // So we can just set it.
+
+        const buffer = new THREE.InterleavedBuffer(new Float32Array(count * GPU_FLOATS_PER_PARTICLE), GPU_FLOATS_PER_PARTICLE);
+        buffer.setUsage(THREE.DynamicDrawUsage);
+
+        geom.setAttribute('position', new THREE.InterleavedBufferAttribute(buffer, 3, 0));
+        geom.setAttribute('velocity', new THREE.InterleavedBufferAttribute(buffer, 3, 4));
     }
 
-    // Optimization: Write directly to existing buffers to avoid allocation
-    extractPositions(currentSnapshot, positions.array as Float32Array);
-    calculateColors(currentSnapshot, 10, colors.array as Float32Array);
+    const buffer = (geom.getAttribute('position') as THREE.InterleavedBufferAttribute).data;
 
-    positions.needsUpdate = true;
-    colors.needsUpdate = true;
+    // Optimization: Fast memcpy instead of iterating
+    // This replaces extractPositions and calculateColors loops
+    buffer.set(currentSnapshot);
+    buffer.needsUpdate = true;
 
     geom.computeBoundingSphere();
 
@@ -116,9 +130,9 @@ export function NBodyVisualization() {
     return () => {
       snapshotGeometry?.dispose();
       realTimeGeometry?.dispose();
-      realTimeMaterial?.dispose();
+      particleMaterial?.dispose();
     };
-  }, [snapshotGeometry, realTimeGeometry, realTimeMaterial]);
+  }, [snapshotGeometry, realTimeGeometry, particleMaterial]);
 
   useFrame((state) => {
     if (nbody.isRealTime) {
@@ -172,21 +186,7 @@ export function NBodyVisualization() {
 
   if (nbody.snapshots.length === 0 || !geometry) return null;
 
-  if (nbody.isRealTime) {
-      return (
-        <points ref={pointsRef} geometry={geometry} material={realTimeMaterial} />
-      );
-  }
-
   return (
-    <points ref={pointsRef} geometry={geometry}>
-      <pointsMaterial
-        size={0.5}
-        vertexColors
-        transparent
-        opacity={0.8}
-        sizeAttenuation
-      />
-    </points>
+    <points ref={pointsRef} geometry={geometry} material={particleMaterial} />
   );
 }
