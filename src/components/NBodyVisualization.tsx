@@ -118,7 +118,7 @@ export function NBodyVisualization() {
 
     // Optimization: Fast memcpy instead of iterating
     // This replaces extractPositions and calculateColors loops
-    buffer.set(currentSnapshot);
+    buffer.set(currentSnapshot, 0);
     buffer.needsUpdate = true;
 
     geom.computeBoundingSphere();
