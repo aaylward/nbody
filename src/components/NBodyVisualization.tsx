@@ -83,11 +83,14 @@ export function NBodyVisualization() {
 
   const currentSnapshot = nbody.snapshots[nbody.currentFrame];
 
-  // Optimization: Memoize center of mass to avoid O(N) calculation every frame
+  // Optimization: Memoize center of mass to avoid O(N) calculation every frame.
+  // We use the first snapshot because the simulation enforces zero net momentum,
+  // so the Center of Mass position is effectively constant.
   const centerOfMass = useMemo(() => {
-    if (!currentSnapshot || getParticleCount(currentSnapshot) === 0) return null;
-    return getCenterOfMass(currentSnapshot);
-  }, [currentSnapshot]);
+    const snapshot = nbody.snapshots[0];
+    if (!snapshot || getParticleCount(snapshot) === 0) return null;
+    return getCenterOfMass(snapshot);
+  }, [nbody.snapshots]);
 
   // Update Snapshot Geometry
   useEffect(() => {
