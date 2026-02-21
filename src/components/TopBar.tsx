@@ -2,7 +2,8 @@ import { useSimulationStore } from '../store/useSimulationStore';
 import './TopBar.css';
 
 export function TopBar() {
-  const { mode, setMode } = useSimulationStore();
+  const mode = useSimulationStore((state) => state.mode);
+  const setMode = useSimulationStore((state) => state.setMode);
 
   return (
     <div className="top-bar">
