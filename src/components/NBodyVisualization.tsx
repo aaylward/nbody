@@ -28,6 +28,9 @@ export function NBodyVisualization() {
     // Velocity: offset 4 (vx, vy, vz) - used for color in shader
     geom.setAttribute('velocity', new THREE.InterleavedBufferAttribute(buffer, 3, 4));
 
+    // Optimization: Set large bounding sphere to avoid recomputation and culling issues
+    geom.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);
+
     return geom;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nbody.isRealTime, nbody.simulationTimestamp]); // Re-create on new simulation (timestamp change)
@@ -79,7 +82,12 @@ export function NBodyVisualization() {
   }, []);
 
   // Persistent geometry for Snapshot mode to avoid reallocation
-  const snapshotGeometry = useMemo(() => new THREE.BufferGeometry(), []);
+  const snapshotGeometry = useMemo(() => {
+    const geom = new THREE.BufferGeometry();
+    // Optimization: Set large bounding sphere to avoid recomputation
+    geom.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);
+    return geom;
+  }, []);
 
   const currentSnapshot = nbody.snapshots[nbody.currentFrame];
 
@@ -123,8 +131,6 @@ export function NBodyVisualization() {
     // This replaces extractPositions and calculateColors loops
     buffer.set(currentSnapshot, 0);
     buffer.needsUpdate = true;
-
-    geom.computeBoundingSphere();
 
   }, [nbody.isRealTime, currentSnapshot, snapshotGeometry]);
 
@@ -190,6 +196,6 @@ export function NBodyVisualization() {
   if (nbody.snapshots.length === 0 || !geometry) return null;
 
   return (
-    <points ref={pointsRef} geometry={geometry} material={particleMaterial} />
+    <points ref={pointsRef} geometry={geometry} material={particleMaterial} frustumCulled={false} />
   );
 }
