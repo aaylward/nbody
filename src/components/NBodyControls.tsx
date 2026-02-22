@@ -3,19 +3,77 @@ import { useSimulationStore } from '../store/useSimulationStore';
 import { generateNBodyDemo, initRealTimeSimulation, activeSimulation } from '../simulation/nbody';
 import './NBodyControls.css';
 
+function PlaybackControls() {
+  const isRealTime = useSimulationStore((state) => state.nbody.isRealTime);
+  const playing = useSimulationStore((state) => state.nbody.playing);
+  const currentFrame = useSimulationStore((state) => state.nbody.currentFrame);
+  const snapshotsLength = useSimulationStore((state) => state.nbody.snapshots.length);
+  const animationSpeed = useSimulationStore((state) => state.nbody.animationSpeed);
+
+  const setNBodyFrame = useSimulationStore((state) => state.setNBodyFrame);
+  const setNBodyAnimationSpeed = useSimulationStore((state) => state.setNBodyAnimationSpeed);
+  const setNBodyPlaying = useSimulationStore((state) => state.setNBodyPlaying);
+
+  return (
+    <>
+      {!isRealTime && (
+        <>
+          <div className="control-group">
+            <label>
+              Time Step: <span className="value-display">{currentFrame}</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max={Math.max(0, snapshotsLength - 1)}
+              value={currentFrame}
+              onChange={(e) => setNBodyFrame(parseInt(e.target.value))}
+              disabled={snapshotsLength === 0}
+            />
+          </div>
+
+          <div className="control-group">
+            <label>
+              Animation Speed:{' '}
+              <span className="value-display">{animationSpeed.toFixed(1)}x</span>
+            </label>
+            <input
+              type="range"
+              min="0.1"
+              max="5"
+              step="0.1"
+              value={animationSpeed}
+              onChange={(e) => setNBodyAnimationSpeed(parseFloat(e.target.value))}
+            />
+          </div>
+        </>
+      )}
+
+      <button
+        className="primary"
+        onClick={() => setNBodyPlaying(!playing)}
+        disabled={snapshotsLength === 0}
+      >
+        {playing ? 'Pause' : 'Play'} {isRealTime ? 'Simulation' : 'Animation'}
+      </button>
+    </>
+  );
+}
+
 export function NBodyControls() {
-  const {
-    nbody,
-    setNBodySnapshots,
-    setNBodyFrame,
-    setNBodyPlaying,
-    setNBodyAnimationSpeed,
-    setNBodyNumParticles,
-    setNBodyNumSnapshots,
-    setNBodyDeltaT,
-    setNBodyRealTime,
-    setNBodySimulationTimestamp,
-  } = useSimulationStore();
+  // Use granular selectors to avoid re-rendering on every frame (currentFrame change)
+  const isRealTime = useSimulationStore((state) => state.nbody.isRealTime);
+  const numParticles = useSimulationStore((state) => state.nbody.numParticles);
+  const numSnapshots = useSimulationStore((state) => state.nbody.numSnapshots);
+  const deltaT = useSimulationStore((state) => state.nbody.deltaT);
+
+  const setNBodySnapshots = useSimulationStore((state) => state.setNBodySnapshots);
+  const setNBodyPlaying = useSimulationStore((state) => state.setNBodyPlaying);
+  const setNBodyNumParticles = useSimulationStore((state) => state.setNBodyNumParticles);
+  const setNBodyNumSnapshots = useSimulationStore((state) => state.setNBodyNumSnapshots);
+  const setNBodyDeltaT = useSimulationStore((state) => state.setNBodyDeltaT);
+  const setNBodyRealTime = useSimulationStore((state) => state.setNBodyRealTime);
+  const setNBodySimulationTimestamp = useSimulationStore((state) => state.setNBodySimulationTimestamp);
 
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -24,18 +82,21 @@ export function NBodyControls() {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleGenerate = async () => {
+    // Access current state directly to avoid subscribing
+    const nbodyState = useSimulationStore.getState().nbody;
+
     setGenerating(true);
     setProgress(0);
     setProgressMessage('Starting...');
     setStatusMessage('');
 
     try {
-      if (nbody.isRealTime) {
+      if (nbodyState.isRealTime) {
         // Real-time mode
         const success = await initRealTimeSimulation({
-            numParticles: nbody.numParticles,
+            numParticles: nbodyState.numParticles,
             numSnapshots: 0, // Not used
-            deltaT: nbody.deltaT,
+            deltaT: nbodyState.deltaT,
             onProgress: (p, msg) => {
                 setProgress(p);
                 setProgressMessage(msg);
@@ -54,9 +115,9 @@ export function NBodyControls() {
       } else {
         // Offline mode
         const snapshots = await generateNBodyDemo({
-            numParticles: nbody.numParticles,
-            numSnapshots: nbody.numSnapshots,
-            deltaT: nbody.deltaT,
+            numParticles: nbodyState.numParticles,
+            numSnapshots: nbodyState.numSnapshots,
+            deltaT: nbodyState.deltaT,
             onProgress: (p, msg) => {
             setProgress(p);
             setProgressMessage(msg);
@@ -75,7 +136,10 @@ export function NBodyControls() {
   };
 
   const handleBenchmark = async () => {
-    if (!nbody.isRealTime) {
+    // Access current state directly
+    const nbodyState = useSimulationStore.getState().nbody;
+
+    if (!nbodyState.isRealTime) {
         alert("Please enable 'Real-time GPU Mode' first.");
         return;
     }
@@ -156,7 +220,7 @@ export function NBodyControls() {
             <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
                 <input
                     type="checkbox"
-                    checked={nbody.isRealTime}
+                    checked={isRealTime}
                     onChange={(e) => setNBodyRealTime(e.target.checked)}
                     style={{ marginRight: '8px' }}
                 />
@@ -190,37 +254,37 @@ export function NBodyControls() {
             {statusMessage ? (
                 <span id="status-message" style={{ fontWeight: 'bold' }}>{statusMessage}</span>
             ) : (
-                nbody.isRealTime ? 'Click "Start Simulation" to run in real-time!' : 'Click "Generate Demo" to see particles in motion!'
+                isRealTime ? 'Click "Start Simulation" to run in real-time!' : 'Click "Generate Demo" to see particles in motion!'
             )}
         </div>
       )}
 
       <div className="control-group">
         <label>
-          Number of Particles: <span className="value-display">{nbody.numParticles.toLocaleString()}</span>
+          Number of Particles: <span className="value-display">{numParticles.toLocaleString()}</span>
         </label>
         <input
           type="range"
           min="100"
-          max={nbody.isRealTime ? "1000000" : "50000"}
+          max={isRealTime ? "1000000" : "50000"}
           step="100"
-          value={nbody.numParticles}
+          value={numParticles}
           onChange={(e) => setNBodyNumParticles(parseInt(e.target.value))}
           disabled={generating}
         />
       </div>
 
-      {!nbody.isRealTime && (
+      {!isRealTime && (
         <div className="control-group">
             <label>
-            Number of Timesteps: <span className="value-display">{nbody.numSnapshots.toLocaleString()}</span>
+            Number of Timesteps: <span className="value-display">{numSnapshots.toLocaleString()}</span>
             </label>
             <input
             type="range"
             min="50"
             max="10000"
             step="50"
-            value={nbody.numSnapshots}
+            value={numSnapshots}
             onChange={(e) => setNBodyNumSnapshots(parseInt(e.target.value))}
             disabled={generating}
             />
@@ -229,14 +293,14 @@ export function NBodyControls() {
 
       <div className="control-group">
         <label>
-          Delta T (Timestep Size): <span className="value-display">{nbody.deltaT.toFixed(3)}</span>
+          Delta T (Timestep Size): <span className="value-display">{deltaT.toFixed(3)}</span>
         </label>
         <input
           type="range"
           min="0.001"
           max="0.2"
           step="0.001"
-          value={nbody.deltaT}
+          value={deltaT}
           onChange={(e) => setNBodyDeltaT(parseFloat(e.target.value))}
           disabled={generating}
         />
@@ -244,55 +308,16 @@ export function NBodyControls() {
 
       <div className="control-group" style={{ display: 'flex', gap: '8px' }}>
         <button className="primary" onClick={handleGenerate} disabled={generating} style={{ flex: 2 }}>
-          {nbody.isRealTime ? 'Start Simulation' : 'Generate Demo Data'}
+          {isRealTime ? 'Start Simulation' : 'Generate Demo Data'}
         </button>
-        {nbody.isRealTime && (
+        {isRealTime && (
             <button className="secondary" onClick={handleBenchmark} disabled={generating} style={{ flex: 1, fontSize: '11px', padding: '4px' }}>
                 Benchmark
             </button>
         )}
       </div>
 
-      {!nbody.isRealTime && (
-      <div className="control-group">
-        <label>
-          Time Step: <span className="value-display">{nbody.currentFrame}</span>
-        </label>
-        <input
-          type="range"
-          min="0"
-          max={Math.max(0, nbody.snapshots.length - 1)}
-          value={nbody.currentFrame}
-          onChange={(e) => setNBodyFrame(parseInt(e.target.value))}
-          disabled={nbody.snapshots.length === 0}
-        />
-      </div>
-      )}
-
-      {!nbody.isRealTime && (
-          <div className="control-group">
-            <label>
-            Animation Speed:{' '}
-            <span className="value-display">{nbody.animationSpeed.toFixed(1)}x</span>
-            </label>
-            <input
-            type="range"
-            min="0.1"
-            max="5"
-            step="0.1"
-            value={nbody.animationSpeed}
-            onChange={(e) => setNBodyAnimationSpeed(parseFloat(e.target.value))}
-            />
-        </div>
-      )}
-
-      <button
-        className="primary"
-        onClick={() => setNBodyPlaying(!nbody.playing)}
-        disabled={nbody.snapshots.length === 0}
-      >
-        {nbody.playing ? 'Pause' : 'Play'} {nbody.isRealTime ? 'Simulation' : 'Animation'}
-      </button>
+      <PlaybackControls />
 
       <button className="primary" onClick={() => window.location.reload()}>
         Reset View
