@@ -563,10 +563,12 @@ async function generateNBodyCPU(
       for (let i = 0; i < numParticles; i++) {
         const offset = i * FLOATS_PER_PARTICLE;
         const mass = particles[offset + OFFSET_MASS];
+        // Optimization: Pre-calculate inverse mass to replace 3 divisions with 1 division + 3 multiplications
+        const invMass = 1.0 / mass;
 
-        const ax = forces[i * 3 + 0] / mass;
-        const ay = forces[i * 3 + 1] / mass;
-        const az = forces[i * 3 + 2] / mass;
+        const ax = forces[i * 3 + 0] * invMass;
+        const ay = forces[i * 3 + 1] * invMass;
+        const az = forces[i * 3 + 2] * invMass;
 
         // Kick 1
         particles[offset + OFFSET_VX] += ax * deltaT * 0.5;
@@ -586,10 +588,12 @@ async function generateNBodyCPU(
       for (let i = 0; i < numParticles; i++) {
         const offset = i * FLOATS_PER_PARTICLE;
         const mass = particles[offset + OFFSET_MASS];
+        // Optimization: Pre-calculate inverse mass
+        const invMass = 1.0 / mass;
 
-        const ax = forces[i * 3 + 0] / mass;
-        const ay = forces[i * 3 + 1] / mass;
-        const az = forces[i * 3 + 2] / mass;
+        const ax = forces[i * 3 + 0] * invMass;
+        const ay = forces[i * 3 + 1] * invMass;
+        const az = forces[i * 3 + 2] * invMass;
 
         particles[offset + OFFSET_VX] += ax * deltaT * 0.5;
         particles[offset + OFFSET_VY] += ay * deltaT * 0.5;
