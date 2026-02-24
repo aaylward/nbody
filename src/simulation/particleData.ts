@@ -1,7 +1,7 @@
 /**
  * Efficient TypedArray-based particle data storage
  *
- * Each particle is stored as 8 consecutive floats (32 bytes):
+ * Each particle is stored as 8 consecutive floats (32 bytes for F32, 64 bytes for F64):
  * [x, y, z, pad, vx, vy, vz, mass]
  *
  * The padding ensures 32-byte alignment for better cache locality and SIMD,
@@ -32,7 +32,7 @@ export function createParticleArray(numParticles: number): Float32Array {
 /**
  * Get particle data by index
  */
-export function getParticle(data: Float32Array, index: number) {
+export function getParticle(data: Float32Array | Float64Array, index: number) {
   const offset = index * FLOATS_PER_PARTICLE;
   return {
     x: data[offset + OFFSET_X],
@@ -49,7 +49,7 @@ export function getParticle(data: Float32Array, index: number) {
  * Set particle data by index
  */
 export function setParticle(
-  data: Float32Array,
+  data: Float32Array | Float64Array,
   index: number,
   particle: {
     x: number;
@@ -74,7 +74,7 @@ export function setParticle(
 /**
  * Get position of particle by index
  */
-export function getPosition(data: Float32Array, index: number) {
+export function getPosition(data: Float32Array | Float64Array, index: number) {
   const offset = index * FLOATS_PER_PARTICLE;
   return {
     x: data[offset + OFFSET_X],
@@ -86,7 +86,7 @@ export function getPosition(data: Float32Array, index: number) {
 /**
  * Get velocity of particle by index
  */
-export function getVelocity(data: Float32Array, index: number) {
+export function getVelocity(data: Float32Array | Float64Array, index: number) {
   const offset = index * FLOATS_PER_PARTICLE;
   return {
     vx: data[offset + OFFSET_VX],
@@ -98,7 +98,7 @@ export function getVelocity(data: Float32Array, index: number) {
 /**
  * Get mass of particle by index
  */
-export function getMass(data: Float32Array, index: number): number {
+export function getMass(data: Float32Array | Float64Array, index: number): number {
   const offset = index * FLOATS_PER_PARTICLE;
   return data[offset + OFFSET_MASS];
 }
@@ -107,7 +107,7 @@ export function getMass(data: Float32Array, index: number): number {
  * Update position of particle by index
  */
 export function updatePosition(
-  data: Float32Array,
+  data: Float32Array | Float64Array,
   index: number,
   dx: number,
   dy: number,
@@ -123,7 +123,7 @@ export function updatePosition(
  * Update velocity of particle by index
  */
 export function updateVelocity(
-  data: Float32Array,
+  data: Float32Array | Float64Array,
   index: number,
   dvx: number,
   dvy: number,
@@ -139,9 +139,9 @@ export function updateVelocity(
  * Copy particle data from one array to another
  */
 export function copyParticle(
-  source: Float32Array,
+  source: Float32Array | Float64Array,
   sourceIndex: number,
-  dest: Float32Array,
+  dest: Float32Array | Float64Array,
   destIndex: number
 ) {
   const srcOffset = sourceIndex * FLOATS_PER_PARTICLE;
@@ -155,14 +155,14 @@ export function copyParticle(
 /**
  * Get number of particles in array
  */
-export function getParticleCount(data: Float32Array): number {
+export function getParticleCount(data: Float32Array | Float64Array): number {
   return data.length / FLOATS_PER_PARTICLE;
 }
 
 /**
  * Create a deep copy of particle data
  */
-export function cloneParticleData(data: Float32Array): Float32Array {
+export function cloneParticleData(data: Float32Array | Float64Array): Float32Array {
   return new Float32Array(data);
 }
 
@@ -276,7 +276,7 @@ export function calculateColors(
 /**
  * Calculate center of mass for all particles
  */
-export function getCenterOfMass(data: Float32Array): {
+export function getCenterOfMass(data: Float32Array | Float64Array): {
   x: number;
   y: number;
   z: number;
@@ -308,7 +308,7 @@ export function getCenterOfMass(data: Float32Array): {
 /**
  * Calculate center of mass velocity for all particles
  */
-export function getCenterOfMassVelocity(data: Float32Array): {
+export function getCenterOfMassVelocity(data: Float32Array | Float64Array): {
   vx: number;
   vy: number;
   vz: number;
@@ -341,7 +341,7 @@ export function getCenterOfMassVelocity(data: Float32Array): {
  * Remove center of mass velocity (zero net momentum)
  * This ensures the system doesn't drift over time
  */
-export function removeCenterOfMassVelocity(data: Float32Array): void {
+export function removeCenterOfMassVelocity(data: Float32Array | Float64Array): void {
   const comVel = getCenterOfMassVelocity(data);
   const numParticles = getParticleCount(data);
 
