@@ -462,7 +462,7 @@ function convertGPUDataToCompact(gpuData: Float32Array): Float32Array {
   return new Float32Array(gpuData);
 }
 
-function computeForcesCPU(particles: Float32Array, forces: Float32Array, numParticles: number) {
+function computeForcesCPU(particles: Float32Array | Float64Array, forces: Float32Array | Float64Array, numParticles: number) {
   const G = 1.0;
   const softening = 2.0;
   const softeningSq = softening * softening;
@@ -537,12 +537,18 @@ async function generateNBodyCPU(
   const { numParticles, numSnapshots, deltaT, onProgress } = options;
   const snapshots: Float32Array[] = [];
 
-  const particles = initializeNBodyParticles(numParticles);
+  // Initialize particles as Float32Array
+  const initialParticles = initializeNBodyParticles(numParticles);
+
+  // Convert to Float64Array for high-precision simulation
+  // This avoids overhead of converting between F32/F64 during calculations
+  // and improves physics precision.
+  const particles = new Float64Array(initialParticles);
 
   const chunkSize = 50;
 
-  // Pre-allocate forces array
-  const forces = new Float32Array(numParticles * 3);
+  // Pre-allocate forces array as Float64Array
+  const forces = new Float64Array(numParticles * 3);
 
   // Compute initial forces (O(N²)) - Pre-loop optimization
   // Forces calculated here are used for the first kick
@@ -552,7 +558,7 @@ async function generateNBodyCPU(
     const chunkEnd = Math.min(chunkStart + chunkSize, numSnapshots);
 
     for (let step = chunkStart; step < chunkEnd; step++) {
-      // Clone snapshot
+      // Clone snapshot (converts back to Float32Array for storage/rendering)
       snapshots.push(cloneParticleData(particles));
 
       // Optimization: Use forces calculated at the end of the previous step (or init)
