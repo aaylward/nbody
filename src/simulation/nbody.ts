@@ -557,6 +557,9 @@ async function generateNBodyCPU(
   for (let chunkStart = 0; chunkStart < numSnapshots; chunkStart += chunkSize) {
     const chunkEnd = Math.min(chunkStart + chunkSize, numSnapshots);
 
+    // Optimization: Pre-calculate dt * 0.5 to avoid repeated multiplication inside loops
+    const dtHalf = deltaT * 0.5;
+
     for (let step = chunkStart; step < chunkEnd; step++) {
       // Clone snapshot (converts back to Float32Array for storage/rendering)
       snapshots.push(cloneParticleData(particles));
@@ -566,44 +569,54 @@ async function generateNBodyCPU(
 
       // Leapfrog integration (kick-drift-kick)
       // Optimization: Fuse Kick1 and Drift loops for better cache locality (1 pass instead of 2)
+      // Optimization: Manual index incrementing to avoid multiplication overhead
+      let offset = 0;
+      let forceIdx = 0;
       for (let i = 0; i < numParticles; i++) {
-        const offset = i * FLOATS_PER_PARTICLE;
         const mass = particles[offset + OFFSET_MASS];
         // Optimization: Pre-calculate inverse mass to replace 3 divisions with 1 division + 3 multiplications
         const invMass = 1.0 / mass;
 
-        const ax = forces[i * 3 + 0] * invMass;
-        const ay = forces[i * 3 + 1] * invMass;
-        const az = forces[i * 3 + 2] * invMass;
+        const ax = forces[forceIdx] * invMass;
+        const ay = forces[forceIdx + 1] * invMass;
+        const az = forces[forceIdx + 2] * invMass;
 
         // Kick 1
-        particles[offset + OFFSET_VX] += ax * deltaT * 0.5;
-        particles[offset + OFFSET_VY] += ay * deltaT * 0.5;
-        particles[offset + OFFSET_VZ] += az * deltaT * 0.5;
+        particles[offset + OFFSET_VX] += ax * dtHalf;
+        particles[offset + OFFSET_VY] += ay * dtHalf;
+        particles[offset + OFFSET_VZ] += az * dtHalf;
 
         // Drift (uses updated velocity)
         particles[offset + OFFSET_X] += particles[offset + OFFSET_VX] * deltaT;
         particles[offset + OFFSET_Y] += particles[offset + OFFSET_VY] * deltaT;
         particles[offset + OFFSET_Z] += particles[offset + OFFSET_VZ] * deltaT;
+
+        offset += FLOATS_PER_PARTICLE;
+        forceIdx += 3;
       }
 
       // Recompute forces at new positions
       computeForcesCPU(particles, forces, numParticles);
 
       // Half-step velocity update (kick)
+      // Optimization: Manual index incrementing
+      offset = 0;
+      forceIdx = 0;
       for (let i = 0; i < numParticles; i++) {
-        const offset = i * FLOATS_PER_PARTICLE;
         const mass = particles[offset + OFFSET_MASS];
         // Optimization: Pre-calculate inverse mass
         const invMass = 1.0 / mass;
 
-        const ax = forces[i * 3 + 0] * invMass;
-        const ay = forces[i * 3 + 1] * invMass;
-        const az = forces[i * 3 + 2] * invMass;
+        const ax = forces[forceIdx] * invMass;
+        const ay = forces[forceIdx + 1] * invMass;
+        const az = forces[forceIdx + 2] * invMass;
 
-        particles[offset + OFFSET_VX] += ax * deltaT * 0.5;
-        particles[offset + OFFSET_VY] += ay * deltaT * 0.5;
-        particles[offset + OFFSET_VZ] += az * deltaT * 0.5;
+        particles[offset + OFFSET_VX] += ax * dtHalf;
+        particles[offset + OFFSET_VY] += ay * dtHalf;
+        particles[offset + OFFSET_VZ] += az * dtHalf;
+
+        offset += FLOATS_PER_PARTICLE;
+        forceIdx += 3;
       }
 
       // Correct momentum drift every 10 steps
