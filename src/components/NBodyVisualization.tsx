@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useSimulationStore } from '../store/useSimulationStore';
 import { getCenterOfMass, getParticleCount } from '../simulation/particleData';
-import { activeSimulation, GPU_FLOATS_PER_PARTICLE } from '../simulation/nbody';
+import { activeSimulation, GPU_FLOATS_PER_PARTICLE, RENDER_FLOATS_PER_PARTICLE } from '../simulation/nbody';
 
 export function NBodyVisualization() {
   const { nbody, setNBodyFrame } = useSimulationStore();
@@ -19,14 +19,16 @@ export function NBodyVisualization() {
     const geom = new THREE.BufferGeometry();
     const count = activeSimulation.numParticles;
 
-    // Allocate buffer for particles * 8 floats (32 bytes)
-    const buffer = new THREE.InterleavedBuffer(new Float32Array(count * GPU_FLOATS_PER_PARTICLE), GPU_FLOATS_PER_PARTICLE);
+    // Allocate buffer for particles * 6 floats (24 bytes) - optimized readback layout
+    // This matches the compact buffer layout from the GPU
+    const stride = RENDER_FLOATS_PER_PARTICLE;
+    const buffer = new THREE.InterleavedBuffer(new Float32Array(count * stride), stride);
     buffer.setUsage(THREE.DynamicDrawUsage);
 
     // Position: offset 0 (x, y, z)
     geom.setAttribute('position', new THREE.InterleavedBufferAttribute(buffer, 3, 0));
-    // Velocity: offset 4 (vx, vy, vz) - used for color in shader
-    geom.setAttribute('velocity', new THREE.InterleavedBufferAttribute(buffer, 3, 4));
+    // Velocity: offset 3 (vx, vy, vz) - used for color in shader
+    geom.setAttribute('velocity', new THREE.InterleavedBufferAttribute(buffer, 3, 3));
 
     // Optimization: Set large bounding sphere to avoid recomputation and culling issues
     geom.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Infinity);

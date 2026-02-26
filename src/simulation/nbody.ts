@@ -34,6 +34,8 @@ export const GPU_VEL_Y = OFFSET_VY;
 export const GPU_VEL_Z = OFFSET_VZ;
 export const GPU_MASS = OFFSET_MASS; // Stored in vel.w
 
+export const RENDER_FLOATS_PER_PARTICLE = 6;
+
 export async function initGPU(): Promise<boolean> {
   if (!navigator.gpu) {
     console.log('WebGPU not available - using CPU fallback');
@@ -63,6 +65,7 @@ export class NBodyGPU {
   particleBuffer!: GPUBuffer;
   forceBuffer!: GPUBuffer;
   uniformBuffer!: GPUBuffer;
+  compactBuffer!: GPUBuffer;
 
   // Pipelines
   forcePipeline!: GPUComputePipeline;
@@ -166,6 +169,7 @@ export class NBodyGPU {
     @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
     @group(0) @binding(1) var<storage, read> forces: array<vec3f>;
     @group(0) @binding(2) var<uniform> uniforms: Uniforms;
+    @group(0) @binding(3) var<storage, read_write> compactData: array<f32>;
 
     @compute @workgroup_size(256)
     fn kick(@builtin(global_invocation_id) id: vec3u) {
@@ -179,6 +183,16 @@ export class NBodyGPU {
         particles[i].vel.x += accel.x * uniforms.dt * 0.5;
         particles[i].vel.y += accel.y * uniforms.dt * 0.5;
         particles[i].vel.z += accel.z * uniforms.dt * 0.5;
+
+        // Write compact data for rendering [px, py, pz, vx, vy, vz]
+        // This avoids transferring 'pad' and 'mass' back to CPU, saving 25% bandwidth
+        let outIdx = i * 6u;
+        compactData[outIdx]     = particles[i].pos.x;
+        compactData[outIdx + 1] = particles[i].pos.y;
+        compactData[outIdx + 2] = particles[i].pos.z;
+        compactData[outIdx + 3] = particles[i].vel.x;
+        compactData[outIdx + 4] = particles[i].vel.y;
+        compactData[outIdx + 5] = particles[i].vel.z;
     }
   `;
 
@@ -209,6 +223,11 @@ export class NBodyGPU {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
+    this.compactBuffer = this.device.createBuffer({
+      size: this.numParticles * 6 * 4, // 6 floats per particle
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+
     this.uniformBuffer = this.device.createBuffer({
       size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -218,7 +237,7 @@ export class NBodyGPU {
     this.uniformBuffer.unmap();
 
     this.stagingBuffer = this.device.createBuffer({
-      size: gpuParticleData.byteLength,
+      size: this.numParticles * 6 * 4, // Match compact buffer size
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
 
@@ -257,6 +276,7 @@ export class NBodyGPU {
         { binding: 0, resource: { buffer: this.particleBuffer } },
         { binding: 1, resource: { buffer: this.forceBuffer } },
         { binding: 2, resource: { buffer: this.uniformBuffer } },
+        { binding: 3, resource: { buffer: this.compactBuffer } },
       ],
     });
 
@@ -323,7 +343,7 @@ export class NBodyGPU {
   async getParticleData(outData?: Float32Array): Promise<Float32Array> {
     const commandEncoder = this.device.createCommandEncoder();
     commandEncoder.copyBufferToBuffer(
-      this.particleBuffer,
+      this.compactBuffer,
       0,
       this.stagingBuffer,
       0,
