@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NBodyGPU, initGPU, GPU_FLOATS_PER_PARTICLE } from '../nbody';
+import { NBodyGPU, initGPU, GPU_FLOATS_PER_PARTICLE, RENDER_FLOATS_PER_PARTICLE } from '../nbody';
 
 // Mock WebGPU globals
 const mockQueue = {
@@ -76,7 +76,7 @@ describe('NBodyGPU', () => {
     await sim.init(0.01);
 
     // Verify buffer creation
-    expect(mockDevice.createBuffer).toHaveBeenCalledTimes(4); // particle, force, uniform, staging
+    expect(mockDevice.createBuffer).toHaveBeenCalledTimes(5); // particle, force, uniform, compact, staging
 
     // Verify pipeline creation (3 pipelines)
     expect(mockDevice.createComputePipeline).toHaveBeenCalledTimes(3);
@@ -117,7 +117,7 @@ describe('NBodyGPU', () => {
     const sim = new NBodyGPU(mockGPUDevice, numParticles);
     await sim.init(0.01);
 
-    const expectedSize = numParticles * GPU_FLOATS_PER_PARTICLE;
+    const expectedSize = numParticles * RENDER_FLOATS_PER_PARTICLE;
     // Mock getMappedRange to return exact size buffer for this test
     mockBuffer.getMappedRange.mockReturnValueOnce(new Float32Array(expectedSize).buffer);
 
