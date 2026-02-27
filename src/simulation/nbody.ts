@@ -499,8 +499,6 @@ function computeForcesCPU(particles: Float32Array | Float64Array, forces: Float3
 
     // Cache force indices for i
     const iFxIndex = i * 3;
-    const iFyIndex = iFxIndex + 1;
-    const iFzIndex = iFxIndex + 2;
 
     // Accumulate forces in local variables
     let fx_i = 0;
@@ -546,8 +544,8 @@ function computeForcesCPU(particles: Float32Array | Float64Array, forces: Float3
 
     // Write back accumulated forces for i
     forces[iFxIndex] += fx_i;
-    forces[iFyIndex] += fy_i;
-    forces[iFzIndex] += fz_i;
+    forces[iFxIndex + 1] += fy_i;
+    forces[iFxIndex + 2] += fz_i;
   }
 }
 
