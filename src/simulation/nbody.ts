@@ -276,7 +276,6 @@ export class NBodyGPU {
         { binding: 0, resource: { buffer: this.particleBuffer } },
         { binding: 1, resource: { buffer: this.forceBuffer } },
         { binding: 2, resource: { buffer: this.uniformBuffer } },
-        { binding: 3, resource: { buffer: this.compactBuffer } },
       ],
     });
 
@@ -286,6 +285,7 @@ export class NBodyGPU {
         { binding: 0, resource: { buffer: this.particleBuffer } },
         { binding: 1, resource: { buffer: this.forceBuffer } },
         { binding: 2, resource: { buffer: this.uniformBuffer } },
+        { binding: 3, resource: { buffer: this.compactBuffer } },
       ],
     });
 
