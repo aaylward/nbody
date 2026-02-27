@@ -95,12 +95,14 @@ describe('NBodyGPU BindGroup Configuration', () => {
     // To confirm it fails NOW (before fix):
 
     // Check kickDriftBindGroup: Should NOT have binding 3
-    const kickDriftHasBinding3 = kickDriftCall.entries.some(e => e.binding === 3);
+    const kickDriftEntries = Array.from(kickDriftCall.entries);
+    const kickDriftHasBinding3 = kickDriftEntries.some(e => e.binding === 3);
     // Expect this to be false in correct code, but it is true in buggy code.
     expect(kickDriftHasBinding3).toBe(false);
 
     // Check kickBindGroup: SHOULD have binding 3
-    const kickHasBinding3 = kickCall.entries.some(e => e.binding === 3);
+    const kickEntries = Array.from(kickCall.entries);
+    const kickHasBinding3 = kickEntries.some(e => e.binding === 3);
     // Expect this to be true in correct code, but it is false in buggy code.
     expect(kickHasBinding3).toBe(true);
   });
