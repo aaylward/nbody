@@ -49,13 +49,13 @@ describe('NBodyGPU BindGroup Configuration', () => {
       UNIFORM: 8,
       MAP_READ: 16,
       MAP_WRITE: 32,
-    } as any;
+    } as unknown as typeof GPUBufferUsage;
 
     // Mock global GPUMapMode
     global.GPUMapMode = {
       READ: 1,
       WRITE: 2,
-    } as any;
+    } as unknown as typeof GPUMapMode;
   });
 
   it('should create kickDriftBindGroup with correct bindings (0, 1, 2)', async () => {
