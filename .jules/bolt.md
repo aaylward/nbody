@@ -9,3 +9,7 @@
 ## 2025-02-28 - [Optimized Memory Iteration]
 **Learning:** In performance-critical loops (e.g., `interpolateSnapshots`), iterating directly by memory offset (`offset += FLOATS_PER_PARTICLE`) instead of recalculating the offset via multiplication per particle (`p * FLOATS_PER_PARTICLE`) yields >30% performance improvements in V8.
 **Action:** When iterating over packed structures in TypedArrays, hoist the multiplication (`numParticles * FLOATS_PER_PARTICLE`) to find the total size and iterate using addition (`offset += stride`) rather than recalculating via multiplication within the loop body.
+
+## 2025-03-04 - [Optimized Snapshot Interpolation]
+**Learning:** Using `TypedArray.set()` for a fast memory copy of the initial state, followed by in-place linear interpolation `a += (b - a) * t`, reduces mathematical operations from 2 multiplies/1 add to 1 multiply/1 add/1 subtract per component. This avoids updating invariant properties (like mass) inside the loop and significantly speeds up interpolation in V8.
+**Action:** When interpolating large packed structures (e.g. simulation frames), initialize the destination array via `.set(sourceArray)` to copy invariant values instantly, then only calculate the delta (`b - a`) multiplied by `t` for changing values.
