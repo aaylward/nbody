@@ -673,20 +673,23 @@ function interpolateSnapshots(
 
     for (let j = 1; j < saveInterval; j++) {
       const t = j / saveInterval;
-      const oneMinusT = 1 - t;
 
       const interpolated = createParticleArray(numParticles);
 
+      // Optimization: Fast copy of initial state
+      interpolated.set(snap1);
+
       // Optimization: Iterate by offset directly instead of calculating p * FLOATS_PER_PARTICLE
+      // Optimization: Use linear interpolation formula snap1 + (snap2 - snap1) * t
+      // (1 multiply, 1 add, 1 subtract per component instead of 2 multiplies and 1 add)
       for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
-        // Interpolate each component
-        interpolated[offset + OFFSET_X] = snap1[offset + OFFSET_X] * oneMinusT + snap2[offset + OFFSET_X] * t;
-        interpolated[offset + OFFSET_Y] = snap1[offset + OFFSET_Y] * oneMinusT + snap2[offset + OFFSET_Y] * t;
-        interpolated[offset + OFFSET_Z] = snap1[offset + OFFSET_Z] * oneMinusT + snap2[offset + OFFSET_Z] * t;
-        interpolated[offset + OFFSET_VX] = snap1[offset + OFFSET_VX] * oneMinusT + snap2[offset + OFFSET_VX] * t;
-        interpolated[offset + OFFSET_VY] = snap1[offset + OFFSET_VY] * oneMinusT + snap2[offset + OFFSET_VY] * t;
-        interpolated[offset + OFFSET_VZ] = snap1[offset + OFFSET_VZ] * oneMinusT + snap2[offset + OFFSET_VZ] * t;
-        interpolated[offset + OFFSET_MASS] = snap1[offset + OFFSET_MASS]; // Mass doesn't change
+        interpolated[offset + OFFSET_X] += (snap2[offset + OFFSET_X] - snap1[offset + OFFSET_X]) * t;
+        interpolated[offset + OFFSET_Y] += (snap2[offset + OFFSET_Y] - snap1[offset + OFFSET_Y]) * t;
+        interpolated[offset + OFFSET_Z] += (snap2[offset + OFFSET_Z] - snap1[offset + OFFSET_Z]) * t;
+        interpolated[offset + OFFSET_VX] += (snap2[offset + OFFSET_VX] - snap1[offset + OFFSET_VX]) * t;
+        interpolated[offset + OFFSET_VY] += (snap2[offset + OFFSET_VY] - snap1[offset + OFFSET_VY]) * t;
+        interpolated[offset + OFFSET_VZ] += (snap2[offset + OFFSET_VZ] - snap1[offset + OFFSET_VZ]) * t;
+        // Mass doesn't change, already copied via .set()
       }
 
       fullSnapshots[frameIndex++] = interpolated;
