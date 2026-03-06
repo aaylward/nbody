@@ -510,18 +510,15 @@ function computeForcesCPU(particles: Float32Array | Float64Array, forces: Float3
     let jFIndex = (i + 1) * 3;
 
     for (let j = i + 1; j < numParticles; j++) {
-      const jx = particles[jOffset + OFFSET_X];
-      const jy = particles[jOffset + OFFSET_Y];
-      const jz = particles[jOffset + OFFSET_Z];
-      const jm = particles[jOffset + OFFSET_MASS];
-
-      const dx = jx - ix;
-      const dy = jy - iy;
-      const dz = jz - iz;
+      const dx = particles[jOffset + OFFSET_X] - ix;
+      const dy = particles[jOffset + OFFSET_Y] - iy;
+      const dz = particles[jOffset + OFFSET_Z] - iz;
 
       const r2 = dx * dx + dy * dy + dz * dz + softeningSq;
-      const r = Math.sqrt(r2);
-      const f = (Gim * jm) / (r2 * r);
+
+      // Optimization: Calculate scalar force multiplier directly
+      // Avoids intermediate variables and simplifies the math
+      const f = (Gim * particles[jOffset + OFFSET_MASS]) / (r2 * Math.sqrt(r2));
 
       const fx = f * dx;
       const fy = f * dy;
