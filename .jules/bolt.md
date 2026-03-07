@@ -13,3 +13,7 @@
 ## 2025-03-04 - [Optimized Snapshot Interpolation]
 **Learning:** Using `TypedArray.set()` for a fast memory copy of the initial state, followed by in-place linear interpolation `a += (b - a) * t`, reduces mathematical operations from 2 multiplies/1 add to 1 multiply/1 add/1 subtract per component. This avoids updating invariant properties (like mass) inside the loop and significantly speeds up interpolation in V8.
 **Action:** When interpolating large packed structures (e.g. simulation frames), initialize the destination array via `.set(sourceArray)` to copy invariant values instantly, then only calculate the delta (`b - a`) multiplied by `t` for changing values.
+
+## 2024-05-24 - [Optimized React Three Fiber Re-renders]
+**Learning:** Subscribing to frequently changing state (like animation `currentFrame`) at the component level in `@react-three/fiber` triggers expensive 60fps React re-renders.
+**Action:** Use granular Zustand selectors (`state => state.isRealTime`) for static props, and read rapidly changing transient state directly inside the `useFrame` loop via `useSimulationStore.getState()`. Perform geometry buffer updates (`buffer.set()`) imperatively inside `useFrame` to bypass React reconciliation completely.
