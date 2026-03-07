@@ -6,15 +6,21 @@ import { getCenterOfMass, getParticleCount } from '../simulation/particleData';
 import { activeSimulation, GPU_FLOATS_PER_PARTICLE, RENDER_FLOATS_PER_PARTICLE } from '../simulation/nbody';
 
 export function NBodyVisualization() {
-  const { nbody, setNBodyFrame } = useSimulationStore();
+  // Use granular selectors to avoid re-rendering the entire 3D component on every frame
+  const isRealTime = useSimulationStore((state) => state.nbody.isRealTime);
+  const simulationTimestamp = useSimulationStore((state) => state.nbody.simulationTimestamp);
+  const hasSnapshots = useSimulationStore((state) => state.nbody.snapshots.length > 0);
+
   const pointsRef = useRef<THREE.Points>(null);
   const lastFrameTime = useRef(0);
+  const lastRenderedFrame = useRef(-1);
+  const lastRenderedTimestamp = useRef(0);
   const { controls } = useThree();
   const isReadingBack = useRef(false);
 
   // Initialize geometry for Real-time mode
   const realTimeGeometry = useMemo(() => {
-    if (!nbody.isRealTime || !activeSimulation) return null;
+    if (!isRealTime || !activeSimulation) return null;
 
     const geom = new THREE.BufferGeometry();
     const count = activeSimulation.numParticles;
@@ -35,7 +41,7 @@ export function NBodyVisualization() {
 
     return geom;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nbody.isRealTime, nbody.simulationTimestamp]); // Re-create on new simulation (timestamp change)
+  }, [isRealTime, simulationTimestamp]); // Re-create on new simulation (timestamp change)
 
   // Shared Shader Material for both Real-time and Snapshot modes
   const particleMaterial = useMemo(() => {
@@ -91,50 +97,17 @@ export function NBodyVisualization() {
     return geom;
   }, []);
 
-  const currentSnapshot = nbody.snapshots[nbody.currentFrame];
+  // Optimization: Track initial snapshot to compute center of mass once.
+  // We use a granular selector so this doesn't trigger a render when the snapshot array is appended.
+  const initialSnapshot = useSimulationStore((state) => state.nbody.snapshots[0]);
 
   // Optimization: Memoize center of mass to avoid O(N) calculation every frame.
   // We use the first snapshot because the simulation enforces zero net momentum,
   // so the Center of Mass position is effectively constant.
   const centerOfMass = useMemo(() => {
-    const snapshot = nbody.snapshots[0];
-    if (!snapshot || getParticleCount(snapshot) === 0) return null;
-    return getCenterOfMass(snapshot);
-  }, [nbody.snapshots]);
-
-  // Update Snapshot Geometry
-  useEffect(() => {
-    if (nbody.isRealTime || !currentSnapshot) return;
-
-    const count = getParticleCount(currentSnapshot);
-    const geom = snapshotGeometry;
-
-    // Check if we need to reinitialize buffer (size mismatch or first run)
-    const positionAttribute = geom.getAttribute('position') as THREE.InterleavedBufferAttribute;
-
-    if (!positionAttribute || positionAttribute.count !== count) {
-        // Create InterleavedBuffer
-        // We reuse the currentSnapshot array for the buffer if possible?
-        // No, InterleavedBuffer takes a TypedArray. snapshot data is TypedArray.
-        // We allocate a new buffer of the correct size to hold the interleaved data.
-        // Actually, currentSnapshot IS interleaved data (8 floats per particle).
-        // So we can just set it.
-
-        const buffer = new THREE.InterleavedBuffer(new Float32Array(count * GPU_FLOATS_PER_PARTICLE), GPU_FLOATS_PER_PARTICLE);
-        buffer.setUsage(THREE.DynamicDrawUsage);
-
-        geom.setAttribute('position', new THREE.InterleavedBufferAttribute(buffer, 3, 0));
-        geom.setAttribute('velocity', new THREE.InterleavedBufferAttribute(buffer, 3, 4));
-    }
-
-    const buffer = (geom.getAttribute('position') as THREE.InterleavedBufferAttribute).data;
-
-    // Optimization: Fast memcpy instead of iterating
-    // This replaces extractPositions and calculateColors loops
-    buffer.set(currentSnapshot, 0);
-    buffer.needsUpdate = true;
-
-  }, [nbody.isRealTime, currentSnapshot, snapshotGeometry]);
+    if (!initialSnapshot || getParticleCount(initialSnapshot) === 0) return null;
+    return getCenterOfMass(initialSnapshot);
+  }, [initialSnapshot]);
 
   // Cleanup geometry on unmount
   useEffect(() => {
@@ -146,7 +119,9 @@ export function NBodyVisualization() {
   }, [snapshotGeometry, realTimeGeometry, particleMaterial]);
 
   useFrame((state) => {
-    if (nbody.isRealTime) {
+    const nbody = useSimulationStore.getState().nbody;
+
+    if (isRealTime) {
          if (!nbody.playing || !activeSimulation || !realTimeGeometry || isReadingBack.current) return;
 
          isReadingBack.current = true;
@@ -180,6 +155,32 @@ export function NBodyVisualization() {
             }
         }
 
+        const currentSnapshot = nbody.snapshots[nbody.currentFrame];
+        if (!currentSnapshot) return;
+
+        // Update geometry buffer outside React render loop if the frame changed
+        if (lastRenderedFrame.current !== nbody.currentFrame || lastRenderedTimestamp.current !== nbody.simulationTimestamp) {
+            const count = getParticleCount(currentSnapshot);
+            const geom = snapshotGeometry;
+
+            const positionAttribute = geom.getAttribute('position') as THREE.InterleavedBufferAttribute;
+
+            if (!positionAttribute || positionAttribute.count !== count) {
+                const buffer = new THREE.InterleavedBuffer(new Float32Array(count * GPU_FLOATS_PER_PARTICLE), GPU_FLOATS_PER_PARTICLE);
+                buffer.setUsage(THREE.DynamicDrawUsage);
+
+                geom.setAttribute('position', new THREE.InterleavedBufferAttribute(buffer, 3, 0));
+                geom.setAttribute('velocity', new THREE.InterleavedBufferAttribute(buffer, 3, 4));
+            }
+
+            const buffer = (geom.getAttribute('position') as THREE.InterleavedBufferAttribute).data;
+            buffer.set(currentSnapshot, 0);
+            buffer.needsUpdate = true;
+
+            lastRenderedFrame.current = nbody.currentFrame;
+            lastRenderedTimestamp.current = nbody.simulationTimestamp;
+        }
+
         if (!nbody.playing || nbody.snapshots.length === 0) return;
 
         const elapsed = state.clock.getElapsedTime() * 1000;
@@ -187,15 +188,15 @@ export function NBodyVisualization() {
 
         if (elapsed - lastFrameTime.current > interval) {
             const nextFrame = (nbody.currentFrame + 1) % nbody.snapshots.length;
-            setNBodyFrame(nextFrame);
+            useSimulationStore.getState().setNBodyFrame(nextFrame);
             lastFrameTime.current = elapsed;
         }
     }
   });
 
-  const geometry = nbody.isRealTime ? realTimeGeometry : snapshotGeometry;
+  const geometry = isRealTime ? realTimeGeometry : snapshotGeometry;
 
-  if (nbody.snapshots.length === 0 || !geometry) return null;
+  if (!hasSnapshots || !geometry) return null;
 
   return (
     <points ref={pointsRef} geometry={geometry} material={particleMaterial} frustumCulled={false} />

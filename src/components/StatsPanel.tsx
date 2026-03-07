@@ -1,14 +1,22 @@
 import { useSimulationStore } from '../store/useSimulationStore';
 import './StatsPanel.css';
 
+import { getParticleCount } from '../simulation/particleData';
+
 export function StatsPanel() {
   const mode = useSimulationStore((state) => state.mode);
-  const nbody = useSimulationStore((state) => state.nbody);
-  const montecarlo = useSimulationStore((state) => state.montecarlo);
+
+  // Use granular selectors to avoid large object diffs on every frame
+  const nbodyCurrentFrame = useSimulationStore((state) => state.nbody.currentFrame);
+  const nbodyNumSnapshots = useSimulationStore((state) => state.nbody.snapshots.length);
+  const nbodyInitialSnapshot = useSimulationStore((state) => state.nbody.snapshots[0]);
+
+  const mcPhotons = useSimulationStore((state) => state.montecarlo.photons);
+  const mcAbsorbed = useSimulationStore((state) => state.montecarlo.absorbed);
+  const mcEscaped = useSimulationStore((state) => state.montecarlo.escaped);
 
   if (mode === 'nbody') {
-    const numParticles = nbody.snapshots[0]?.length || 0;
-    const numSnapshots = nbody.snapshots.length;
+    const numParticles = nbodyInitialSnapshot ? getParticleCount(nbodyInitialSnapshot) : 0;
 
     return (
       <div className="stats-panel">
@@ -18,11 +26,11 @@ export function StatsPanel() {
         </div>
         <div className="stat-row">
           <span className="stat-label">Snapshots:</span>
-          <span className="stat-value">{numSnapshots.toLocaleString()}</span>
+          <span className="stat-value">{nbodyNumSnapshots.toLocaleString()}</span>
         </div>
         <div className="stat-row">
           <span className="stat-label">Frame:</span>
-          <span className="stat-value">{nbody.currentFrame}</span>
+          <span className="stat-value">{nbodyCurrentFrame}</span>
         </div>
       </div>
     );
@@ -33,16 +41,16 @@ export function StatsPanel() {
       <div className="stat-row">
         <span className="stat-label">Active Photons:</span>
         <span className="stat-value">
-          {montecarlo.photons.filter((p) => p.alive).length}
+          {mcPhotons.filter((p) => p.alive).length}
         </span>
       </div>
       <div className="stat-row">
         <span className="stat-label">Absorbed:</span>
-        <span className="stat-value">{montecarlo.absorbed}</span>
+        <span className="stat-value">{mcAbsorbed}</span>
       </div>
       <div className="stat-row">
         <span className="stat-label">Escaped:</span>
-        <span className="stat-value">{montecarlo.escaped}</span>
+        <span className="stat-value">{mcEscaped}</span>
       </div>
     </div>
   );
