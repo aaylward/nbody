@@ -17,3 +17,11 @@
 ## 2024-05-24 - [Optimized React Three Fiber Re-renders]
 **Learning:** Subscribing to frequently changing state (like animation `currentFrame`) at the component level in `@react-three/fiber` triggers expensive 60fps React re-renders.
 **Action:** Use granular Zustand selectors (`state => state.isRealTime`) for static props, and read rapidly changing transient state directly inside the `useFrame` loop via `useSimulationStore.getState()`. Perform geometry buffer updates (`buffer.set()`) imperatively inside `useFrame` to bypass React reconciliation completely.
+
+## 2025-03-05 - [Optimized Variable Allocation in Hot Loops]
+**Learning:** Folding math operations into single inline expressions (like `f = (Gim * jm) / (r2 * Math.sqrt(r2))`) and accessing values from TypedArrays directly without intermediate variable assignments avoids variable allocation overhead in V8 and yields measurable speedups inside O(N^2) loops.
+**Action:** When working in performance-critical O(N^2) loops, minimize `const` or `let` intermediate assignments for individual properties. Instead, use offset arithmetic and inline expressions whenever readability permits.
+
+## 2025-03-05 - [Consolidated Memory Operations in Integration Loops]
+**Learning:** Consolidating multiple velocity/acceleration update stages into unified scalar logic (`dtHalfInvMass = dtHalf / mass`) and caching intermediate states inside local variables (`vx`, `vy`, `vz`) reduces redundant reads and writes from TypedArrays in tight iterative algorithms (like Leapfrog integration).
+**Action:** During sequential physical updates (like Kick and Drift), combine multiplicative coefficients and maintain intermediate state variables during the loop to avoid repetitively writing to and reading from array memory.

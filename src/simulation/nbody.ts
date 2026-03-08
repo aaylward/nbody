@@ -510,18 +510,14 @@ function computeForcesCPU(particles: Float32Array | Float64Array, forces: Float3
     let jFIndex = (i + 1) * 3;
 
     for (let j = i + 1; j < numParticles; j++) {
-      const jx = particles[jOffset + OFFSET_X];
-      const jy = particles[jOffset + OFFSET_Y];
-      const jz = particles[jOffset + OFFSET_Z];
-      const jm = particles[jOffset + OFFSET_MASS];
-
-      const dx = jx - ix;
-      const dy = jy - iy;
-      const dz = jz - iz;
+      const dx = particles[jOffset + OFFSET_X] - ix;
+      const dy = particles[jOffset + OFFSET_Y] - iy;
+      const dz = particles[jOffset + OFFSET_Z] - iz;
 
       const r2 = dx * dx + dy * dy + dz * dz + softeningSq;
-      const r = Math.sqrt(r2);
-      const f = (Gim * jm) / (r2 * r);
+      // Optimization: Fold math operations into a single inline expression and access
+      // values from TypedArrays directly without intermediate assignments to avoid allocation overhead.
+      const f = (Gim * particles[jOffset + OFFSET_MASS]) / (r2 * Math.sqrt(r2));
 
       const fx = f * dx;
       const fy = f * dy;
@@ -591,23 +587,25 @@ async function generateNBodyCPU(
       let offset = 0;
       let forceIdx = 0;
       for (let i = 0; i < numParticles; i++) {
-        const mass = particles[offset + OFFSET_MASS];
-        // Optimization: Pre-calculate inverse mass to replace 3 divisions with 1 division + 3 multiplications
-        const invMass = 1.0 / mass;
-
-        const ax = forces[forceIdx] * invMass;
-        const ay = forces[forceIdx + 1] * invMass;
-        const az = forces[forceIdx + 2] * invMass;
+        // Optimization: Pre-calculate the acceleration multiplier (dtHalf / mass)
+        // to replace 3 divisions/multiplications with 1 division + 3 multiplications
+        const dtHalfInvMass = dtHalf / particles[offset + OFFSET_MASS];
 
         // Kick 1
-        particles[offset + OFFSET_VX] += ax * dtHalf;
-        particles[offset + OFFSET_VY] += ay * dtHalf;
-        particles[offset + OFFSET_VZ] += az * dtHalf;
+        // Optimization: Read velocities into local variables, add kick, and write back.
+        // This reduces array property reads during the Drift phase.
+        const vx = particles[offset + OFFSET_VX] + forces[forceIdx] * dtHalfInvMass;
+        const vy = particles[offset + OFFSET_VY] + forces[forceIdx + 1] * dtHalfInvMass;
+        const vz = particles[offset + OFFSET_VZ] + forces[forceIdx + 2] * dtHalfInvMass;
+
+        particles[offset + OFFSET_VX] = vx;
+        particles[offset + OFFSET_VY] = vy;
+        particles[offset + OFFSET_VZ] = vz;
 
         // Drift (uses updated velocity)
-        particles[offset + OFFSET_X] += particles[offset + OFFSET_VX] * deltaT;
-        particles[offset + OFFSET_Y] += particles[offset + OFFSET_VY] * deltaT;
-        particles[offset + OFFSET_Z] += particles[offset + OFFSET_VZ] * deltaT;
+        particles[offset + OFFSET_X] += vx * deltaT;
+        particles[offset + OFFSET_Y] += vy * deltaT;
+        particles[offset + OFFSET_Z] += vz * deltaT;
 
         offset += FLOATS_PER_PARTICLE;
         forceIdx += 3;
@@ -621,17 +619,12 @@ async function generateNBodyCPU(
       offset = 0;
       forceIdx = 0;
       for (let i = 0; i < numParticles; i++) {
-        const mass = particles[offset + OFFSET_MASS];
-        // Optimization: Pre-calculate inverse mass
-        const invMass = 1.0 / mass;
+        // Optimization: Pre-calculate the acceleration multiplier
+        const dtHalfInvMass = dtHalf / particles[offset + OFFSET_MASS];
 
-        const ax = forces[forceIdx] * invMass;
-        const ay = forces[forceIdx + 1] * invMass;
-        const az = forces[forceIdx + 2] * invMass;
-
-        particles[offset + OFFSET_VX] += ax * dtHalf;
-        particles[offset + OFFSET_VY] += ay * dtHalf;
-        particles[offset + OFFSET_VZ] += az * dtHalf;
+        particles[offset + OFFSET_VX] += forces[forceIdx] * dtHalfInvMass;
+        particles[offset + OFFSET_VY] += forces[forceIdx + 1] * dtHalfInvMass;
+        particles[offset + OFFSET_VZ] += forces[forceIdx + 2] * dtHalfInvMass;
 
         offset += FLOATS_PER_PARTICLE;
         forceIdx += 3;
