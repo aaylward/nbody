@@ -25,3 +25,7 @@
 ## 2025-03-05 - [Consolidated Memory Operations in Integration Loops]
 **Learning:** Consolidating multiple velocity/acceleration update stages into unified scalar logic (`dtHalfInvMass = dtHalf / mass`) and caching intermediate states inside local variables (`vx`, `vy`, `vz`) reduces redundant reads and writes from TypedArrays in tight iterative algorithms (like Leapfrog integration).
 **Action:** During sequential physical updates (like Kick and Drift), combine multiplicative coefficients and maintain intermediate state variables during the loop to avoid repetitively writing to and reading from array memory.
+
+## 2025-03-05 - [Removed Redundant Memory Copy from WebGPU Readback]
+**Learning:** During offline WebGPU simulation recording (`generateNBodyGPU`), the simulation extracted frame data via `getParticleData()`, which internally returned a mapped `Float32Array`. However, the calling code was wrapping it in `new Float32Array(gpuData)` under the guise of `convertGPUDataToCompact`. Because WebGPU map readbacks via `.slice(0)` already detach and duplicate the underlying data into JS memory, this resulted in an expensive double-copy for every recorded frame. Removing the redundant copy avoids allocating double the memory and saves CPU cycles.
+**Action:** When extracting data from a WebGPU staging buffer that has already been sliced or detached into JS memory, do not wrap it in another TypedArray constructor unless a type conversion is strictly necessary.

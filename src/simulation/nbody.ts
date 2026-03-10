@@ -425,7 +425,7 @@ async function generateNBodyGPU(
 
   // Collect initial state
   const initialData = await sim.getParticleData();
-  snapshots.push(convertGPUDataToCompact(initialData));
+  snapshots.push(initialData);
 
   for (let step = 0; step < numSnapshots; step++) {
     sim.step(deltaT);
@@ -446,7 +446,9 @@ async function generateNBodyGPU(
          return snapshots;
       }
 
-      snapshots.push(convertGPUDataToCompact(gpuData));
+      // Optimization: getParticleData already returns a detached Float32Array
+      // so we don't need to copy it again.
+      snapshots.push(gpuData);
     }
 
     if (step % transferInterval === 0) {
@@ -475,11 +477,6 @@ async function generateNBodyGPU(
   console.log(`GPU simulation complete: ${fullSnapshots.length} total frames`);
   onProgress?.(100, 'Simulation complete!');
   return fullSnapshots;
-}
-
-function convertGPUDataToCompact(gpuData: Float32Array): Float32Array {
-  // Since formats match, we just return a copy of the data
-  return new Float32Array(gpuData);
 }
 
 function computeForcesCPU(particles: Float32Array | Float64Array, forces: Float32Array | Float64Array, numParticles: number) {
