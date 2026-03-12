@@ -256,6 +256,10 @@ export function calculateColors(
   const numParticles = getParticleCount(data);
   const colors = out || new Float32Array(numParticles * 3);
 
+  // Optimization: Pre-calculate the inverse of maxVelocity to replace division
+  // with multiplication inside the loop, saving CPU cycles.
+  const invMaxVelocity = 1.0 / maxVelocity;
+
   for (let i = 0; i < numParticles; i++) {
     const offset = i * FLOATS_PER_PARTICLE;
     const vx = data[offset + OFFSET_VX];
@@ -263,11 +267,15 @@ export function calculateColors(
     const vz = data[offset + OFFSET_VZ];
 
     const v = Math.sqrt(vx * vx + vy * vy + vz * vz);
-    const norm = Math.min(v / maxVelocity, 1);
+    const norm = Math.min(v * invMaxVelocity, 1);
 
-    colors[i * 3 + 0] = 0.5 + norm * 0.5; // R
-    colors[i * 3 + 1] = 0.5; // G
-    colors[i * 3 + 2] = 1 - norm * 0.5; // B
+    const cIdx = i * 3;
+    const halfNorm = norm * 0.5;
+
+    // Optimization: Avoid repeated addition/multiplication by using pre-calculated halfNorm
+    colors[cIdx + 0] = 0.5 + halfNorm; // R
+    colors[cIdx + 1] = 0.5;            // G
+    colors[cIdx + 2] = 1 - halfNorm;   // B
   }
 
   return colors;
@@ -282,14 +290,15 @@ export function getCenterOfMass(data: Float32Array | Float64Array): {
   z: number;
 } {
   const numParticles = getParticleCount(data);
+  const numFloats = numParticles * FLOATS_PER_PARTICLE;
 
   let totalMass = 0;
   let comX = 0;
   let comY = 0;
   let comZ = 0;
 
-  for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
+  // Optimization: Iterate by offset directly rather than calculating per particle
+  for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
     const mass = data[offset + OFFSET_MASS];
 
     comX += data[offset + OFFSET_X] * mass;
@@ -298,10 +307,13 @@ export function getCenterOfMass(data: Float32Array | Float64Array): {
     totalMass += mass;
   }
 
+  // Optimization: Pre-calculate the inverse mass
+  const invTotalMass = 1.0 / totalMass;
+
   return {
-    x: comX / totalMass,
-    y: comY / totalMass,
-    z: comZ / totalMass,
+    x: comX * invTotalMass,
+    y: comY * invTotalMass,
+    z: comZ * invTotalMass,
   };
 }
 
@@ -314,14 +326,15 @@ export function getCenterOfMassVelocity(data: Float32Array | Float64Array): {
   vz: number;
 } {
   const numParticles = getParticleCount(data);
+  const numFloats = numParticles * FLOATS_PER_PARTICLE;
 
   let totalMass = 0;
   let comVx = 0;
   let comVy = 0;
   let comVz = 0;
 
-  for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
+  // Optimization: Iterate by offset directly rather than calculating per particle
+  for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
     const mass = data[offset + OFFSET_MASS];
 
     comVx += data[offset + OFFSET_VX] * mass;
@@ -330,10 +343,13 @@ export function getCenterOfMassVelocity(data: Float32Array | Float64Array): {
     totalMass += mass;
   }
 
+  // Optimization: Pre-calculate the inverse mass
+  const invTotalMass = 1.0 / totalMass;
+
   return {
-    vx: comVx / totalMass,
-    vy: comVy / totalMass,
-    vz: comVz / totalMass,
+    vx: comVx * invTotalMass,
+    vy: comVy * invTotalMass,
+    vz: comVz * invTotalMass,
   };
 }
 
@@ -344,9 +360,10 @@ export function getCenterOfMassVelocity(data: Float32Array | Float64Array): {
 export function removeCenterOfMassVelocity(data: Float32Array | Float64Array): void {
   const comVel = getCenterOfMassVelocity(data);
   const numParticles = getParticleCount(data);
+  const numFloats = numParticles * FLOATS_PER_PARTICLE;
 
-  for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
+  // Optimization: Iterate by offset directly rather than calculating per particle
+  for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
     data[offset + OFFSET_VX] -= comVel.vx;
     data[offset + OFFSET_VY] -= comVel.vy;
     data[offset + OFFSET_VZ] -= comVel.vz;
