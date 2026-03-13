@@ -29,3 +29,15 @@
 ## 2025-03-05 - [Removed Redundant Memory Copy from WebGPU Readback]
 **Learning:** During offline WebGPU simulation recording (`generateNBodyGPU`), the simulation extracted frame data via `getParticleData()`, which internally returned a mapped `Float32Array`. However, the calling code was wrapping it in `new Float32Array(gpuData)` under the guise of `convertGPUDataToCompact`. Because WebGPU map readbacks via `.slice(0)` already detach and duplicate the underlying data into JS memory, this resulted in an expensive double-copy for every recorded frame. Removing the redundant copy avoids allocating double the memory and saves CPU cycles.
 **Action:** When extracting data from a WebGPU staging buffer that has already been sliced or detached into JS memory, do not wrap it in another TypedArray constructor unless a type conversion is strictly necessary.
+
+## 2024-05-24 - [Aliasing TypedArrays in Hot Loops]
+**Learning:** In V8, repeatedly accessing variables attached to closures or object properties (like `particles` or `forces` coming from outer scope or arguments) within an inner tight loop can be slower than accessing a locally aliased `const p = particles` inside the function.
+**Action:** When running heavy O(N^2) loops on TypedArrays, locally alias the array references with `const p = arrayRef;` inside the loop function to give the JIT compiler hints that the reference will not change and avoid closure lookups.
+
+## 2025-03-13 - [Refactoring V8 division expressions]
+**Learning:** Re-structuring math from `const f = (Gim * mass) / (r2 * Math.sqrt(r2))` to alternative inverse multiply schemes like `const invR = 1/Math.sqrt(r2)` actually DE-OPTIMIZES the compiler and slows down V8 significantly in this particular tight loop because V8 natively optimizes the `a / (b * Math.sqrt(b))` or similar inverse square root combinations at the JIT level more efficiently than JS-level fraction inversions.
+**Action:** Do NOT change mathematical formula grouping (`/ (r2 * Math.sqrt(r2))`) in the `computeForcesCPU` loop; it is already the most performant structure for V8.
+
+## 2025-03-13 - [Precalculating assignment properties]
+**Learning:** During array filling loops where property sets are done repeatedly across property offsets, creating temporary scalar variable allocations such as `const x = s1x + dx * t; interpolated[offset + 0] = x;` is measurably faster than combined operations like `interpolated[offset + 0] = s1x + dx * t;` when running across heavy tight loops in V8.
+**Action:** When filling large typed arrays using mathematics during iteration, compute properties to local `const` references first before writing them all out into the destination TypedArray indexing.
