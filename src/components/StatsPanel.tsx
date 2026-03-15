@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useSimulationStore } from '../store/useSimulationStore';
 import './StatsPanel.css';
 
@@ -14,6 +15,17 @@ export function StatsPanel() {
   const mcPhotons = useSimulationStore((state) => state.montecarlo.photons);
   const mcAbsorbed = useSimulationStore((state) => state.montecarlo.absorbed);
   const mcEscaped = useSimulationStore((state) => state.montecarlo.escaped);
+
+  // Optimization: Prevent unnecessary array allocations (.filter) on every render
+  const activePhotonsCount = useMemo(() => {
+    let count = 0;
+    for (let i = 0; i < mcPhotons.length; i++) {
+      if (mcPhotons[i].alive) {
+        count++;
+      }
+    }
+    return count;
+  }, [mcPhotons]);
 
   if (mode === 'nbody') {
     const numParticles = nbodyInitialSnapshot ? getParticleCount(nbodyInitialSnapshot) : 0;
@@ -41,7 +53,7 @@ export function StatsPanel() {
       <div className="stat-row">
         <span className="stat-label">Active Photons:</span>
         <span className="stat-value">
-          {mcPhotons.filter((p) => p.alive).length}
+          {activePhotonsCount}
         </span>
       </div>
       <div className="stat-row">
