@@ -29,3 +29,7 @@
 ## 2025-03-05 - [Removed Redundant Memory Copy from WebGPU Readback]
 **Learning:** During offline WebGPU simulation recording (`generateNBodyGPU`), the simulation extracted frame data via `getParticleData()`, which internally returned a mapped `Float32Array`. However, the calling code was wrapping it in `new Float32Array(gpuData)` under the guise of `convertGPUDataToCompact`. Because WebGPU map readbacks via `.slice(0)` already detach and duplicate the underlying data into JS memory, this resulted in an expensive double-copy for every recorded frame. Removing the redundant copy avoids allocating double the memory and saves CPU cycles.
 **Action:** When extracting data from a WebGPU staging buffer that has already been sliced or detached into JS memory, do not wrap it in another TypedArray constructor unless a type conversion is strictly necessary.
+
+## 2025-03-05 - [Optimized React Render Allocations]
+**Learning:** In React components, using operations like `.filter(condition).length` inside the render body creates a new Array instance on every single render. When this state is updated rapidly (e.g., during simulation playback), the constant memory allocations and subsequent garbage collection overhead cause measurable frame drops and jank.
+**Action:** Replace array-allocating operations that only compute a primitive scalar (like count or sum) with a manual `for` loop inside a `useMemo` block. This avoids O(N) memory allocations entirely and calculates the result with zero garbage generation.
