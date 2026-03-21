@@ -33,3 +33,7 @@
 ## 2025-03-05 - [Optimized React Render Allocations]
 **Learning:** In React components, using operations like `.filter(condition).length` inside the render body creates a new Array instance on every single render. When this state is updated rapidly (e.g., during simulation playback), the constant memory allocations and subsequent garbage collection overhead cause measurable frame drops and jank.
 **Action:** Replace array-allocating operations that only compute a primitive scalar (like count or sum) with a manual `for` loop inside a `useMemo` block. This avoids O(N) memory allocations entirely and calculates the result with zero garbage generation.
+
+## 2025-03-21 - [Optimized Memory Allocations in Monte Carlo Visualization]
+**Learning:** In `getColorForValue`, an object containing four sub-arrays defining color scales was being re-allocated inside the function on every call. Because this function is called extremely frequently during the visualization of Monte Carlo datasets, this resulted in thousands of unnecessary allocations per frame, adding significant garbage collection overhead.
+**Action:** Extract constant complex data structures (like arrays or objects) outside of highly-called functions to avoid repetitive memory allocation and improve garbage collection efficiency.

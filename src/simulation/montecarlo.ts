@@ -116,37 +116,40 @@ export function generateMCTallyDemo(): MCTallyData {
   return { data, maxCount };
 }
 
+// Optimization: Move color scales outside the function to avoid re-allocating
+// this object and its arrays on every call to getColorForValue, which happens
+// extremely frequently during Monte Carlo visualization (e.g., thousands of times per frame).
+const COLOR_SCALES: Record<ColorScale, number[][]> = {
+  hot: [
+    [0, 0, 0],
+    [1, 0, 0],
+    [1, 1, 0],
+    [1, 1, 1],
+  ],
+  cool: [
+    [0, 0, 0.5],
+    [0, 1, 1],
+    [0, 1, 0],
+  ],
+  jet: [
+    [0, 0, 0.5],
+    [0, 0, 1],
+    [0, 1, 1],
+    [1, 1, 0],
+    [1, 0, 0],
+  ],
+  viridis: [
+    [0.267, 0.005, 0.329],
+    [0.128, 0.566, 0.551],
+    [0.993, 0.906, 0.144],
+  ],
+};
+
 export function getColorForValue(
   value: number,
   scale: ColorScale
 ): [number, number, number] {
-  const scales: Record<ColorScale, number[][]> = {
-    hot: [
-      [0, 0, 0],
-      [1, 0, 0],
-      [1, 1, 0],
-      [1, 1, 1],
-    ],
-    cool: [
-      [0, 0, 0.5],
-      [0, 1, 1],
-      [0, 1, 0],
-    ],
-    jet: [
-      [0, 0, 0.5],
-      [0, 0, 1],
-      [0, 1, 1],
-      [1, 1, 0],
-      [1, 0, 0],
-    ],
-    viridis: [
-      [0.267, 0.005, 0.329],
-      [0.128, 0.566, 0.551],
-      [0.993, 0.906, 0.144],
-    ],
-  };
-
-  const colorScale = scales[scale] || scales.hot;
+  const colorScale = COLOR_SCALES[scale] || COLOR_SCALES.hot;
   const segment = value * (colorScale.length - 1);
   const idx = Math.floor(segment);
   const t = segment - idx;
