@@ -63,17 +63,17 @@ export class NBodyGPU {
   numParticles: number;
 
   particleBuffer!: GPUBuffer;
-  forceBuffer!: GPUBuffer;
+  accelBuffer!: GPUBuffer;
   uniformBuffer!: GPUBuffer;
   compactBuffer!: GPUBuffer;
 
   // Pipelines
-  forcePipeline!: GPUComputePipeline;
+  accelPipeline!: GPUComputePipeline;
   kickDriftPipeline!: GPUComputePipeline;
   kickPipeline!: GPUComputePipeline;
 
   // Bind Groups
-  forceBindGroup!: GPUBindGroup;
+  accelBindGroup!: GPUBindGroup;
   kickDriftBindGroup!: GPUBindGroup;
   kickBindGroup!: GPUBindGroup;
 
@@ -84,26 +84,25 @@ export class NBodyGPU {
   workgroupCount: number;
 
   // Shaders
-  private computeForceShader = `
+  private computeAccelShader = `
     struct Particle {
         pos: vec4f,
         vel: vec4f,
     }
 
     @group(0) @binding(0) var<storage, read> particles: array<Particle>;
-    @group(0) @binding(1) var<storage, read_write> forces: array<vec3f>;
+    @group(0) @binding(1) var<storage, read_write> accelerations: array<vec3f>;
 
     const G: f32 = 1.0;
     const SOFTENING: f32 = 2.0;
 
     @compute @workgroup_size(256)
-    fn computeForces(@builtin(global_invocation_id) id: vec3u) {
+    fn computeAccel(@builtin(global_invocation_id) id: vec3u) {
         let i = id.x;
         if (i >= arrayLength(&particles)) { return; }
 
-        var force = vec3f(0.0, 0.0, 0.0);
+        var accel = vec3f(0.0, 0.0, 0.0);
         let pi = particles[i].pos.xyz;
-        let mi = particles[i].vel.w;
 
         for (var j = 0u; j < arrayLength(&particles); j++) {
             if (i == j) { continue; }
@@ -113,12 +112,13 @@ export class NBodyGPU {
             // Optimization: Use fast inverse square root intrinsic
             let invR = inverseSqrt(r2);
             let invR3 = invR * invR * invR;
-            let f = G * mi * particles[j].vel.w * invR3;
+            // Calculate acceleration directly: a = F / mi = G * mj / r^2
+            let a = G * particles[j].vel.w * invR3;
 
-            force += f * r;
+            accel += a * r;
         }
 
-        forces[i] = force;
+        accelerations[i] = accel;
     }
   `;
 
@@ -133,7 +133,7 @@ export class NBodyGPU {
     }
 
     @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
-    @group(0) @binding(1) var<storage, read> forces: array<vec3f>;
+    @group(0) @binding(1) var<storage, read> accelerations: array<vec3f>;
     @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 
     @compute @workgroup_size(256)
@@ -141,8 +141,7 @@ export class NBodyGPU {
         let i = id.x;
         if (i >= arrayLength(&particles)) { return; }
 
-        let mass = particles[i].vel.w;
-        let accel = forces[i] / mass;
+        let accel = accelerations[i];
 
         // Half-step velocity update (kick)
         particles[i].vel.x += accel.x * uniforms.dt * 0.5;
@@ -167,7 +166,7 @@ export class NBodyGPU {
     }
 
     @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
-    @group(0) @binding(1) var<storage, read> forces: array<vec3f>;
+    @group(0) @binding(1) var<storage, read> accelerations: array<vec3f>;
     @group(0) @binding(2) var<uniform> uniforms: Uniforms;
     @group(0) @binding(3) var<storage, read_write> compactData: array<f32>;
 
@@ -176,8 +175,7 @@ export class NBodyGPU {
         let i = id.x;
         if (i >= arrayLength(&particles)) { return; }
 
-        let mass = particles[i].vel.w;
-        let accel = forces[i] / mass;
+        let accel = accelerations[i];
 
         // Half-step velocity update
         particles[i].vel.x += accel.x * uniforms.dt * 0.5;
@@ -218,7 +216,7 @@ export class NBodyGPU {
     new Float32Array(this.particleBuffer.getMappedRange()).set(gpuParticleData);
     this.particleBuffer.unmap();
 
-    this.forceBuffer = this.device.createBuffer({
+    this.accelBuffer = this.device.createBuffer({
       size: this.numParticles * 4 * 4, // vec3f in storage requires 16-byte alignment
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
@@ -242,13 +240,13 @@ export class NBodyGPU {
     });
 
     // Create Pipelines
-    const forceModule = this.device.createShaderModule({ code: this.computeForceShader });
+    const accelModule = this.device.createShaderModule({ code: this.computeAccelShader });
     const kickDriftModule = this.device.createShaderModule({ code: this.kickDriftShader });
     const kickModule = this.device.createShaderModule({ code: this.kickShader });
 
-    this.forcePipeline = this.device.createComputePipeline({
+    this.accelPipeline = this.device.createComputePipeline({
       layout: 'auto',
-      compute: { module: forceModule, entryPoint: 'computeForces' },
+      compute: { module: accelModule, entryPoint: 'computeAccel' },
     });
 
     this.kickDriftPipeline = this.device.createComputePipeline({
@@ -262,11 +260,11 @@ export class NBodyGPU {
     });
 
     // Bind Groups
-    this.forceBindGroup = this.device.createBindGroup({
-      layout: this.forcePipeline.getBindGroupLayout(0),
+    this.accelBindGroup = this.device.createBindGroup({
+      layout: this.accelPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.particleBuffer } },
-        { binding: 1, resource: { buffer: this.forceBuffer } },
+        { binding: 1, resource: { buffer: this.accelBuffer } },
       ],
     });
 
@@ -274,7 +272,7 @@ export class NBodyGPU {
       layout: this.kickDriftPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.particleBuffer } },
-        { binding: 1, resource: { buffer: this.forceBuffer } },
+        { binding: 1, resource: { buffer: this.accelBuffer } },
         { binding: 2, resource: { buffer: this.uniformBuffer } },
       ],
     });
@@ -283,21 +281,21 @@ export class NBodyGPU {
       layout: this.kickPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.particleBuffer } },
-        { binding: 1, resource: { buffer: this.forceBuffer } },
+        { binding: 1, resource: { buffer: this.accelBuffer } },
         { binding: 2, resource: { buffer: this.uniformBuffer } },
         { binding: 3, resource: { buffer: this.compactBuffer } },
       ],
     });
 
-    // Compute initial forces so step() can skip the first calculation
-    this.computeForces();
+    // Compute initial accelerations so step() can skip the first calculation
+    this.computeAccelerations();
   }
 
-  computeForces() {
+  computeAccelerations() {
     const commandEncoder = this.device.createCommandEncoder();
     const pass = commandEncoder.beginComputePass();
-    pass.setPipeline(this.forcePipeline);
-    pass.setBindGroup(0, this.forceBindGroup);
+    pass.setPipeline(this.accelPipeline);
+    pass.setBindGroup(0, this.accelBindGroup);
     pass.dispatchWorkgroups(this.workgroupCount);
     pass.end();
     this.device.queue.submit([commandEncoder.finish()]);
@@ -312,7 +310,7 @@ export class NBodyGPU {
 
     const commandEncoder = this.device.createCommandEncoder();
 
-    // Optimization: We skip the first force calculation because forces are
+    // Optimization: We skip the first acceleration calculation because accelerations are
     // already computed at the end of the previous step (or in init).
     // This reduces the number of expensive O(N^2) compute passes by 50%.
 
@@ -323,12 +321,12 @@ export class NBodyGPU {
     kickDriftPass.dispatchWorkgroups(this.workgroupCount);
     kickDriftPass.end();
 
-    // 3. Recompute forces at new positions
-    const forcePass2 = commandEncoder.beginComputePass();
-    forcePass2.setPipeline(this.forcePipeline);
-    forcePass2.setBindGroup(0, this.forceBindGroup);
-    forcePass2.dispatchWorkgroups(this.workgroupCount);
-    forcePass2.end();
+    // 3. Recompute accelerations at new positions
+    const accelPass2 = commandEncoder.beginComputePass();
+    accelPass2.setPipeline(this.accelPipeline);
+    accelPass2.setBindGroup(0, this.accelBindGroup);
+    accelPass2.dispatchWorkgroups(this.workgroupCount);
+    accelPass2.end();
 
     // 4. Second kick
     const kickPass = commandEncoder.beginComputePass();
