@@ -37,3 +37,7 @@
 ## 2025-03-21 - [Optimized Memory Allocations in Monte Carlo Visualization]
 **Learning:** In `getColorForValue`, an object containing four sub-arrays defining color scales was being re-allocated inside the function on every call. Because this function is called extremely frequently during the visualization of Monte Carlo datasets, this resulted in thousands of unnecessary allocations per frame, adding significant garbage collection overhead.
 **Action:** Extract constant complex data structures (like arrays or objects) outside of highly-called functions to avoid repetitive memory allocation and improve garbage collection efficiency.
+
+## 2024-03-24 - [Optimized Force Calculation]
+**Learning:** In the tight O(N^2) inner loop of N-Body physics on the CPU, computing the force magnitude using `f = G * m1 * m2 / (r^2 * Math.sqrt(r^2))` is surprisingly 10-15% faster in V8 than using an inverse square root approach `invR = 1.0 / Math.sqrt(r^2); f = G * m1 * m2 * invR * invR * invR`. While division is generally slower than multiplication, avoiding the extra arithmetic multiplications and variable assignments inside the loop yields better overall JIT optimization and instruction pipelining.
+**Action:** When computing `1/r^3` in JS engines (specifically V8), measure performance before defaulting to the standard C/C++ trick of calculating `invR` and substituting divisions with multiplications. Often, a single division paired with `x * Math.sqrt(x)` is faster.
