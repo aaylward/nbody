@@ -37,3 +37,7 @@
 ## 2025-03-21 - [Optimized Memory Allocations in Monte Carlo Visualization]
 **Learning:** In `getColorForValue`, an object containing four sub-arrays defining color scales was being re-allocated inside the function on every call. Because this function is called extremely frequently during the visualization of Monte Carlo datasets, this resulted in thousands of unnecessary allocations per frame, adding significant garbage collection overhead.
 **Action:** Extract constant complex data structures (like arrays or objects) outside of highly-called functions to avoid repetitive memory allocation and improve garbage collection efficiency.
+
+## 2025-03-31 - [Pre-calculating Multipliers for N-Body Integration]
+**Learning:** In the CPU-based Leapfrog integration loop (`generateNBodyCPU`), dividing `dtHalf / mass` on every frame for every particle results in `2 * N` expensive division operations per frame. Because `dtHalf` and `mass` remain constant across the offline simulation loop, pre-computing these multipliers into a flat `Float64Array(numParticles)` (`dtHalfInvMasses`) replaces millions of slow division operations with fast array sequential reads inside the `O(N)` innermost integration steps, yielding measurable CPU performance gains.
+**Action:** When a loop contains an arithmetic operation involving only constants or loop-invariant properties (especially division), pre-calculate those values into a tightly packed array outside the loop to avoid redundant computation and exploit sequential memory access.
