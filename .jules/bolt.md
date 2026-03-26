@@ -7,7 +7,7 @@
 **Action:** When reading back data from GPU, create a dedicated compact buffer and shader write step to transfer only essential visualization data.
 
 ## 2025-02-28 - [Optimized Memory Iteration]
-**Learning:** In performance-critical loops (e.g., `interpolateSnapshots`), iterating directly by memory offset (`offset += FLOATS_PER_PARTICLE`) instead of recalculating the offset via multiplication per particle (`p * FLOATS_PER_PARTICLE`) yields >30% performance improvements in V8.
+**Learning:** In performance-critical loops (e.g., `interpolateSnapshots`, `calculateColors`), iterating directly by memory offset (`offset += FLOATS_PER_PARTICLE`) instead of recalculating the offset via multiplication per particle (`p * FLOATS_PER_PARTICLE`) yields >30% performance improvements in V8.
 **Action:** When iterating over packed structures in TypedArrays, hoist the multiplication (`numParticles * FLOATS_PER_PARTICLE`) to find the total size and iterate using addition (`offset += stride`) rather than recalculating via multiplication within the loop body.
 
 ## 2025-03-04 - [Optimized Snapshot Interpolation]

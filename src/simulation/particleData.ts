@@ -260,8 +260,12 @@ export function calculateColors(
   // with multiplication inside the loop, saving CPU cycles.
   const invMaxVelocity = 1.0 / maxVelocity;
 
-  for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
+  // Optimization: Calculate total floats to avoid multiplication in loop
+  const numFloats = numParticles * FLOATS_PER_PARTICLE;
+
+  let cIdx = 0;
+  // Optimization: Iterate by offset directly rather than calculating per particle
+  for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
     const vx = data[offset + OFFSET_VX];
     const vy = data[offset + OFFSET_VY];
     const vz = data[offset + OFFSET_VZ];
@@ -269,13 +273,14 @@ export function calculateColors(
     const v = Math.sqrt(vx * vx + vy * vy + vz * vz);
     const norm = Math.min(v * invMaxVelocity, 1);
 
-    const cIdx = i * 3;
     const halfNorm = norm * 0.5;
 
     // Optimization: Avoid repeated addition/multiplication by using pre-calculated halfNorm
-    colors[cIdx + 0] = 0.5 + halfNorm; // R
+    colors[cIdx] = 0.5 + halfNorm;     // R
     colors[cIdx + 1] = 0.5;            // G
     colors[cIdx + 2] = 1 - halfNorm;   // B
+
+    cIdx += 3;
   }
 
   return colors;
