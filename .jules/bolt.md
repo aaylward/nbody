@@ -37,3 +37,6 @@
 ## 2025-03-21 - [Optimized Memory Allocations in Monte Carlo Visualization]
 **Learning:** In `getColorForValue`, an object containing four sub-arrays defining color scales was being re-allocated inside the function on every call. Because this function is called extremely frequently during the visualization of Monte Carlo datasets, this resulted in thousands of unnecessary allocations per frame, adding significant garbage collection overhead.
 **Action:** Extract constant complex data structures (like arrays or objects) outside of highly-called functions to avoid repetitive memory allocation and improve garbage collection efficiency.
+## 2025-03-05 - [Optimized TypedArray Extraction Loops]
+**Learning:** In high-frequency loops processing `TypedArray` data (like converting formats or extracting sub-arrays in `particleData.ts`), using individual function calls (like `setParticle`/`getParticle`) and recalculating array indices using multiplication per iteration (`i * 3`, `i * 8`) introduces measurable overhead.
+**Action:** Inline small property extraction functions into the tight loops and use manual, cumulative offset incrementing (`offset += FLOATS_PER_PARTICLE`, `outIdx += 3`) to avoid repetitive function allocations and multiplication overhead in V8.
