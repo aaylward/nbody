@@ -566,11 +566,19 @@ async function generateNBodyCPU(
   // Forces calculated here are used for the first kick
   computeForcesCPU(particles, forces, numParticles);
 
+  // Optimization: Pre-calculate dt * 0.5 to avoid repeated multiplication inside loops
+  const dtHalf = deltaT * 0.5;
+
+  // Optimization: Pre-calculate the acceleration multiplier (dtHalf / mass) for all particles
+  // Since mass is constant throughout the simulation, we can avoid O(N) divisions per step
+  // and replace them with fast sequential memory reads from a dedicated typed array.
+  const dtHalfInvMassArray = new Float64Array(numParticles);
+  for (let i = 0; i < numParticles; i++) {
+    dtHalfInvMassArray[i] = dtHalf / particles[i * FLOATS_PER_PARTICLE + OFFSET_MASS];
+  }
+
   for (let chunkStart = 0; chunkStart < numSnapshots; chunkStart += chunkSize) {
     const chunkEnd = Math.min(chunkStart + chunkSize, numSnapshots);
-
-    // Optimization: Pre-calculate dt * 0.5 to avoid repeated multiplication inside loops
-    const dtHalf = deltaT * 0.5;
 
     for (let step = chunkStart; step < chunkEnd; step++) {
       // Clone snapshot (converts back to Float32Array for storage/rendering)
@@ -585,9 +593,8 @@ async function generateNBodyCPU(
       let offset = 0;
       let forceIdx = 0;
       for (let i = 0; i < numParticles; i++) {
-        // Optimization: Pre-calculate the acceleration multiplier (dtHalf / mass)
-        // to replace 3 divisions/multiplications with 1 division + 3 multiplications
-        const dtHalfInvMass = dtHalf / particles[offset + OFFSET_MASS];
+        // Optimization: Use pre-calculated array instead of division
+        const dtHalfInvMass = dtHalfInvMassArray[i];
 
         // Kick 1
         // Optimization: Read velocities into local variables, add kick, and write back.
@@ -617,8 +624,8 @@ async function generateNBodyCPU(
       offset = 0;
       forceIdx = 0;
       for (let i = 0; i < numParticles; i++) {
-        // Optimization: Pre-calculate the acceleration multiplier
-        const dtHalfInvMass = dtHalf / particles[offset + OFFSET_MASS];
+        // Optimization: Use pre-calculated array instead of division
+        const dtHalfInvMass = dtHalfInvMassArray[i];
 
         particles[offset + OFFSET_VX] += forces[forceIdx] * dtHalfInvMass;
         particles[offset + OFFSET_VY] += forces[forceIdx + 1] * dtHalfInvMass;

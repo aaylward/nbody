@@ -37,3 +37,6 @@
 ## 2025-03-21 - [Optimized Memory Allocations in Monte Carlo Visualization]
 **Learning:** In `getColorForValue`, an object containing four sub-arrays defining color scales was being re-allocated inside the function on every call. Because this function is called extremely frequently during the visualization of Monte Carlo datasets, this resulted in thousands of unnecessary allocations per frame, adding significant garbage collection overhead.
 **Action:** Extract constant complex data structures (like arrays or objects) outside of highly-called functions to avoid repetitive memory allocation and improve garbage collection efficiency.
+## 2025-03-24 - [Pre-calculated Constant Multipliers for N-Body Step Update]
+**Learning:** In CPU-bound loops within `generateNBodyCPU`, replacing repeated divisions with a pre-calculated multiplier array (e.g., a `Float64Array` storing `dtHalf / mass` for each particle) yields measurable performance gains by converting multiple `O(N)` divisions per step into fast sequential memory reads.
+**Action:** Always verify if constant calculations inside deep performance loops can be hoisted and cached in parallel arrays, specifically replacing slow division operations (`/`) with pre-calculated multipliers.
