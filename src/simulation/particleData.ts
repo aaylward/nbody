@@ -204,8 +204,20 @@ export function toParticleObjects(data: Float32Array): Array<{
   const numParticles = getParticleCount(data);
   const particles = new Array(numParticles);
 
+  // Optimization: Inline getParticle logic and increment offset directly
+  // to avoid function call overhead and inner-loop multiplication.
+  let offset = 0;
   for (let i = 0; i < numParticles; i++) {
-    particles[i] = getParticle(data, i);
+    particles[i] = {
+      x: data[offset + OFFSET_X],
+      y: data[offset + OFFSET_Y],
+      z: data[offset + OFFSET_Z],
+      vx: data[offset + OFFSET_VX],
+      vy: data[offset + OFFSET_VY],
+      vz: data[offset + OFFSET_VZ],
+      mass: data[offset + OFFSET_MASS]
+    };
+    offset += FLOATS_PER_PARTICLE;
   }
 
   return particles;
@@ -218,11 +230,14 @@ export function extractPositions(data: Float32Array, out?: Float32Array): Float3
   const numParticles = getParticleCount(data);
   const positions = out || new Float32Array(numParticles * 3);
 
+  // Optimization: Increment offset directly to avoid multiplication
+  let offset = 0;
+  let posIdx = 0;
   for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
-    positions[i * 3 + 0] = data[offset + OFFSET_X];
-    positions[i * 3 + 1] = data[offset + OFFSET_Y];
-    positions[i * 3 + 2] = data[offset + OFFSET_Z];
+    positions[posIdx++] = data[offset + OFFSET_X];
+    positions[posIdx++] = data[offset + OFFSET_Y];
+    positions[posIdx++] = data[offset + OFFSET_Z];
+    offset += FLOATS_PER_PARTICLE;
   }
 
   return positions;
@@ -235,11 +250,14 @@ export function extractVelocities(data: Float32Array): Float32Array {
   const numParticles = getParticleCount(data);
   const velocities = new Float32Array(numParticles * 3);
 
+  // Optimization: Increment offset directly to avoid multiplication
+  let offset = 0;
+  let velIdx = 0;
   for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
-    velocities[i * 3 + 0] = data[offset + OFFSET_VX];
-    velocities[i * 3 + 1] = data[offset + OFFSET_VY];
-    velocities[i * 3 + 2] = data[offset + OFFSET_VZ];
+    velocities[velIdx++] = data[offset + OFFSET_VX];
+    velocities[velIdx++] = data[offset + OFFSET_VY];
+    velocities[velIdx++] = data[offset + OFFSET_VZ];
+    offset += FLOATS_PER_PARTICLE;
   }
 
   return velocities;
