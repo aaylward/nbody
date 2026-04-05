@@ -37,3 +37,7 @@
 ## 2025-03-21 - [Optimized Memory Allocations in Monte Carlo Visualization]
 **Learning:** In `getColorForValue`, an object containing four sub-arrays defining color scales was being re-allocated inside the function on every call. Because this function is called extremely frequently during the visualization of Monte Carlo datasets, this resulted in thousands of unnecessary allocations per frame, adding significant garbage collection overhead.
 **Action:** Extract constant complex data structures (like arrays or objects) outside of highly-called functions to avoid repetitive memory allocation and improve garbage collection efficiency.
+
+## 2025-03-22 - [Optimized Iteration in Particle Data Extractors]
+**Learning:** In `src/simulation/particleData.ts`, utility functions like `fromParticleObjects` and `extractPositions` used inner-loop multiplication to calculate offsets and relied on function calls (`setParticle`, `getParticle`). Removing function call overhead by inlining the logic and replacing multiplication (`i * FLOATS_PER_PARTICLE`) with manual tracking (`offset += FLOATS_PER_PARTICLE`) significantly improves JIT compilation and memory throughput in V8.
+**Action:** When extracting or iterating over data in hot paths or tight loops, manually increment the index rather than re-multiplying on every iteration, and avoid function call nesting.
