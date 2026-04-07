@@ -13,27 +13,7 @@ export interface NBodySnapshot {
   timestep: number;
 }
 
-export interface Photon {
-  x: number;
-  y: number;
-  z: number;
-  dx: number;
-  dy: number;
-  dz: number;
-  alive: boolean;
-  path: Array<{ x: number; y: number; z: number }>;
-}
-
-export interface MCTallyData {
-  data: number[][][];
-  maxCount: number;
-}
-
-export type SimulationMode = 'nbody' | 'nbody-realtime' | 'montecarlo';
-
-export type MCVisualizationMode = 'particles' | 'tally';
-
-export type ColorScale = 'hot' | 'cool' | 'jet' | 'viridis';
+export type SimulationMode = 'nbody' | 'nbody-realtime';
 
 export interface NBodyState {
   snapshots: Float32Array[];
@@ -41,17 +21,4 @@ export interface NBodyState {
   playing: boolean;
   particleSize: number;
   animationSpeed: number;
-}
-
-export interface MonteCarloState {
-  photons: Photon[];
-  tallyData: MCTallyData | null;
-  animating: boolean;
-  absorbed: number;
-  escaped: number;
-  vizMode: MCVisualizationMode;
-  numPhotons: number;
-  particleSpeed: number;
-  opacity: number;
-  colorScale: ColorScale;
 }

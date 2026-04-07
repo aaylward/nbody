@@ -30,11 +30,11 @@ export function RealtimeControls() {
   }, []);
 
   const handleStart = async () => {
-    if ((backend === 'gpu' || backend === 'gpu-barnes-hut') && !gpuDevice) {
+    if (!gpuDevice) {
       console.error('GPU not available');
       return;
     }
-    await startSimulation(numParticles, gpuDevice || undefined);
+    await startSimulation(numParticles, gpuDevice);
   };
 
   const handleStop = () => {
@@ -66,9 +66,9 @@ export function RealtimeControls() {
             </div>
           )}
 
-          {(backend === 'gpu' || backend === 'gpu-barnes-hut') && !gpuDevice && (
+          {!gpuDevice && (
             <div className="demo-notice" style={{ color: '#ff8800' }}>
-              WebGPU not available. Switch to CPU Barnes-Hut backend.
+              WebGPU not available. This simulation requires a WebGPU-capable browser.
             </div>
           )}
 
@@ -90,19 +90,11 @@ export function RealtimeControls() {
             </div>
           )}
 
-          {isRunning && backend === 'cpu-barnes-hut' && (
-            <div className="demo-notice" style={{ color: '#00ff00' }}>
-              ✓ Simulation running - CPU Barnes-Hut O(N log N)
-            </div>
-          )}
-
           <div className="control-group">
             <label>
               Backend:{' '}
               <span className="value-display">
-                {backend === 'gpu' ? 'GPU Brute-Force' :
-                 backend === 'gpu-barnes-hut' ? 'GPU Barnes-Hut' :
-                 'CPU Barnes-Hut'}
+                {backend === 'gpu' ? 'GPU Brute-Force' : 'GPU Barnes-Hut'}
               </span>
             </label>
             <select
@@ -119,8 +111,7 @@ export function RealtimeControls() {
                 fontSize: '14px',
               }}
             >
-              <option value="gpu-barnes-hut">GPU Barnes-Hut O(N log N) - ⚡ Fastest (Phase 3)</option>
-              <option value="cpu-barnes-hut">CPU Barnes-Hut O(N log N) - Fast</option>
+              <option value="gpu-barnes-hut">GPU Barnes-Hut O(N log N) - ⚡ Fastest</option>
               <option value="gpu">GPU Brute-Force O(N²) - Slow</option>
             </select>
             <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px' }}>
@@ -128,7 +119,7 @@ export function RealtimeControls() {
             </div>
           </div>
 
-          {(backend === 'cpu-barnes-hut' || backend === 'gpu-barnes-hut') && (
+          {backend === 'gpu-barnes-hut' && (
             <div className="control-group">
               <label>
                 Barnes-Hut Theta (θ):{' '}
@@ -163,9 +154,7 @@ export function RealtimeControls() {
               disabled={isRunning}
             />
             <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px' }}>
-              {backend === 'gpu' ? 'Recommended: <50k (GPU brute-force)' :
-               backend === 'gpu-barnes-hut' ? 'Can handle 100k-1M particles!' :
-               'CPU: up to 90k particles'}
+              {backend === 'gpu' ? 'Recommended: <50k (GPU brute-force)' : 'Can handle 100k-1M particles!'}
             </div>
           </div>
 
@@ -195,7 +184,7 @@ export function RealtimeControls() {
 
           <div className="control-group">
             {!isRunning ? (
-              <button className="primary" onClick={handleStart} disabled={(backend === 'gpu' || backend === 'gpu-barnes-hut') && !gpuDevice}>
+              <button className="primary" onClick={handleStart} disabled={!gpuDevice}>
                 Start Simulation
               </button>
             ) : (

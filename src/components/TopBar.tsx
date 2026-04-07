@@ -21,12 +21,6 @@ export function TopBar() {
         >
           N-Body (Real-Time)
         </button>
-        <button
-          className={`mode-btn ${mode === 'montecarlo' ? 'active' : ''}`}
-          onClick={() => setMode('montecarlo')}
-        >
-          Monte Carlo
-        </button>
       </div>
     </div>
   );

@@ -8,7 +8,7 @@ import {
   interpolateParticlesSmooth,
   calculateInterpolationAlpha,
 } from '../interpolation';
-import { createParticleArray, setParticle } from '../../particleData';
+import { createParticleArray, setParticle, getParticle, FLOATS_PER_PARTICLE, OFFSET_MASS } from '../../particleData';
 
 describe('interpolateParticles', () => {
   it('should return frame0 when alpha is 0', () => {
@@ -47,13 +47,14 @@ describe('interpolateParticles', () => {
     setParticle(frame1, 0, { x: 10, y: 20, z: 30, vx: 2, vy: 4, vz: 6, mass: 1 });
 
     const result = interpolateParticles(frame0, frame1, 0.5);
+    const p = getParticle(result, 0);
 
-    expect(result[0]).toBeCloseTo(5); // x
-    expect(result[1]).toBeCloseTo(10); // y
-    expect(result[2]).toBeCloseTo(15); // z
-    expect(result[3]).toBeCloseTo(1); // vx
-    expect(result[4]).toBeCloseTo(2); // vy
-    expect(result[5]).toBeCloseTo(3); // vz
+    expect(p.x).toBeCloseTo(5);
+    expect(p.y).toBeCloseTo(10);
+    expect(p.z).toBeCloseTo(15);
+    expect(p.vx).toBeCloseTo(1);
+    expect(p.vy).toBeCloseTo(2);
+    expect(p.vz).toBeCloseTo(3);
   });
 
   it('should handle multiple particles', () => {
@@ -67,13 +68,16 @@ describe('interpolateParticles', () => {
 
     const result = interpolateParticles(frame0, frame1, 0.5);
 
-    // Check first particle
-    expect(result[0]).toBeCloseTo(2.5); // x
-    expect(result[1]).toBeCloseTo(2.5); // y
+    const p0 = getParticle(result, 0);
+    expect(p0.x).toBeCloseTo(2.5);
+    expect(p0.y).toBeCloseTo(2.5);
 
-    // Check second particle
-    expect(result[7]).toBeCloseTo(12.5); // x
-    expect(result[8]).toBeCloseTo(2.5); // y
+    const p1 = getParticle(result, 1);
+    expect(p1.x).toBeCloseTo(12.5);
+    expect(p1.y).toBeCloseTo(2.5);
+
+    // Sanity: stride matches the layout we're testing against
+    expect(FLOATS_PER_PARTICLE).toBe(8);
   });
 
   it('should throw error if arrays have different lengths', () => {
@@ -108,7 +112,7 @@ describe('interpolateParticlesSmooth', () => {
 
     const result = interpolateParticlesSmooth(frame0, frame1, 0.5);
 
-    expect(result[6]).toBe(5); // mass unchanged
+    expect(result[OFFSET_MASS]).toBe(5); // mass unchanged
   });
 });
 

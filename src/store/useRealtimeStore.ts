@@ -1,20 +1,18 @@
 /**
  * Zustand store for real-time N-body simulation
- * Supports both GPU brute-force and CPU Barnes-Hut backends
+ * GPU-only: brute-force O(N²) and Barnes-Hut O(N log N) backends
  */
 
 import { create } from 'zustand';
 import { RealtimeNBodySimulation } from '../simulation/realtime/RealtimeSimulation';
-import { RealtimeNBodySimulationCPU } from '../simulation/realtime/RealtimeSimulationCPU';
 import { RealtimeNBodySimulationGPUBarnesHut } from '../simulation/realtime/RealtimeSimulationGPUBarnesHut';
 import { PerformanceStats } from '../simulation/realtime/performanceMonitor';
 
-export type SimulationBackend = 'gpu' | 'cpu-barnes-hut' | 'gpu-barnes-hut';
+export type SimulationBackend = 'gpu' | 'gpu-barnes-hut';
 
 // Union type for simulation
 export type SimulationInstance =
   | RealtimeNBodySimulation
-  | RealtimeNBodySimulationCPU
   | RealtimeNBodySimulationGPUBarnesHut;
 
 export interface RealtimeState {
@@ -28,7 +26,7 @@ export interface RealtimeState {
 }
 
 export interface RealtimeActions {
-  startSimulation: (numParticles: number, device?: GPUDevice) => Promise<void>;
+  startSimulation: (numParticles: number, device: GPUDevice) => Promise<void>;
   stopSimulation: () => void;
   resetSimulation: () => void;
   setTargetFPS: (fps: number) => void;
@@ -57,7 +55,7 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
   error: null,
 
   // Actions
-  startSimulation: async (numParticles: number, device?: GPUDevice) => {
+  startSimulation: async (numParticles: number, device: GPUDevice) => {
     try {
       // Clean up existing simulation
       const { simulation: existing } = get();
@@ -69,25 +67,17 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
       const { backend, theta } = get();
       let simulation: SimulationInstance;
 
-      if (backend === 'gpu' && device) {
+      if (backend === 'gpu') {
         // GPU brute-force O(N²) - slow but simple
         simulation = new RealtimeNBodySimulation(device, {
           numParticles,
           targetPhysicsFPS: 20,
           deltaT: 0.01,
         });
-      } else if (backend === 'gpu-barnes-hut' && device) {
-        // GPU Barnes-Hut O(N log N) - fast! (Phase 3)
+      } else {
+        // GPU Barnes-Hut O(N log N) - fast!
         simulation = new RealtimeNBodySimulationGPUBarnesHut({
           device,
-          numParticles,
-          targetPhysicsFPS: 20,
-          deltaT: 0.01,
-          theta,
-        });
-      } else {
-        // CPU Barnes-Hut O(N log N) - fallback for no GPU
-        simulation = new RealtimeNBodySimulationCPU({
           numParticles,
           targetPhysicsFPS: 20,
           deltaT: 0.01,

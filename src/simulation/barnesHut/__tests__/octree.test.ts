@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { Octree } from '../octree';
-import { createParticleArray, setParticle, getParticle } from '../../particleData';
+import { createParticleArray, setParticle, getParticle, getParticleCount } from '../../particleData';
 
 describe('Octree', () => {
   describe('Construction', () => {
@@ -464,7 +464,7 @@ function computeBruteForce(
     fy = 0,
     fz = 0;
 
-  const numParticles = particles.length / 7;
+  const numParticles = getParticleCount(particles);
 
   for (let j = 0; j < numParticles; j++) {
     if (j === particleIndex) continue;

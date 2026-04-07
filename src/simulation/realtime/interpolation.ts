@@ -3,7 +3,16 @@
  * from lower physics framerate (e.g., 20 FPS)
  */
 
-import { FLOATS_PER_PARTICLE } from '../particleData';
+import {
+  FLOATS_PER_PARTICLE,
+  OFFSET_X,
+  OFFSET_Y,
+  OFFSET_Z,
+  OFFSET_VX,
+  OFFSET_VY,
+  OFFSET_VZ,
+  OFFSET_MASS,
+} from '../particleData';
 
 /**
  * Simple linear interpolation between two particle frames
@@ -61,27 +70,31 @@ export function interpolateParticlesSmooth(
   const h01 = -2 * t3 + 3 * t2; // Position at t=1
   const h11 = t3 - t2; // Velocity at t=1
 
+  const posOffsets = [OFFSET_X, OFFSET_Y, OFFSET_Z];
+  const velOffsets = [OFFSET_VX, OFFSET_VY, OFFSET_VZ];
+  const oneMinusAlpha = 1 - alpha;
+
   for (let i = 0; i < numParticles; i++) {
     const offset = i * FLOATS_PER_PARTICLE;
 
-    // Hermite interpolation for position (x, y, z)
+    // Hermite interpolation for position (x, y, z) using corresponding velocity components
     for (let j = 0; j < 3; j++) {
-      const pos0 = frame0[offset + j];
-      const vel0 = frame0[offset + 3 + j]; // vx, vy, vz
-      const pos1 = frame1[offset + j];
-      const vel1 = frame1[offset + 3 + j];
+      const pos0 = frame0[offset + posOffsets[j]];
+      const vel0 = frame0[offset + velOffsets[j]];
+      const pos1 = frame1[offset + posOffsets[j]];
+      const vel1 = frame1[offset + velOffsets[j]];
 
-      result[offset + j] = h00 * pos0 + h10 * vel0 + h01 * pos1 + h11 * vel1;
+      result[offset + posOffsets[j]] = h00 * pos0 + h10 * vel0 + h01 * pos1 + h11 * vel1;
     }
 
     // Linear interpolation for velocity (vx, vy, vz)
-    const oneMinusAlpha = 1 - alpha;
-    for (let j = 3; j < 6; j++) {
-      result[offset + j] = frame0[offset + j] * oneMinusAlpha + frame1[offset + j] * alpha;
+    for (let j = 0; j < 3; j++) {
+      const v = velOffsets[j];
+      result[offset + v] = frame0[offset + v] * oneMinusAlpha + frame1[offset + v] * alpha;
     }
 
     // Mass doesn't interpolate
-    result[offset + 6] = frame0[offset + 6];
+    result[offset + OFFSET_MASS] = frame0[offset + OFFSET_MASS];
   }
 
   return result;

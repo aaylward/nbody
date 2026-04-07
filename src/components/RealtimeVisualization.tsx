@@ -130,26 +130,6 @@ export function RealtimeVisualization() {
           isMappingRef.current = false;
         });
       }
-    } else if ('getCurrentFrame' in simulation && 'getNextFrame' in simulation) {
-      // CPU backend - direct interpolation
-      const alpha = simulation.getPhysicsProgress();
-      const currentFrame = simulation.getCurrentFrame();
-      const nextFrame = simulation.getNextFrame();
-
-      for (let i = 0; i < numParticles; i++) {
-        const i7 = i * 7;
-        const i3 = i * 3;
-
-        positionArrayRef.current[i3 + 0] =
-          currentFrame[i7 + 0] * (1 - alpha) + nextFrame[i7 + 0] * alpha;
-        positionArrayRef.current[i3 + 1] =
-          currentFrame[i7 + 1] * (1 - alpha) + nextFrame[i7 + 1] * alpha;
-        positionArrayRef.current[i3 + 2] =
-          currentFrame[i7 + 2] * (1 - alpha) + nextFrame[i7 + 2] * alpha;
-      }
-
-      const posAttr = geometryRef.current.getAttribute('position') as THREE.BufferAttribute;
-      posAttr.needsUpdate = true;
     }
 
     const elapsed = performance.now() - startTime;
