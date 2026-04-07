@@ -57,31 +57,20 @@ export function RealtimeVisualization() {
     geometryRef.current = geom;
 
     // Create staging buffer for GPU backend only
-    if ('getDevice' in simulation) {
-      const device = simulation.getDevice();
-      const staging = device.createBuffer({
-        size: numParticles * 4 * 4,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-      });
-      setStagingBuffer(staging);
+    const device = simulation.getDevice();
+    const staging = device.createBuffer({
+      size: numParticles * 4 * 4,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    setStagingBuffer(staging);
 
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setGeometry(geom);
+    setGeometry(geom);
 
-      return () => {
-        isMappingRef.current = false;
-        geom.dispose();
-        staging.destroy();
-      };
-    } else {
-      // CPU backend
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setGeometry(geom);
-
-      return () => {
-        geom.dispose();
-      };
-    }
+    return () => {
+      isMappingRef.current = false;
+      geom.dispose();
+      staging.destroy();
+    };
   }, [simulation]);
 
   // Real-time render loop
