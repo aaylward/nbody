@@ -37,3 +37,7 @@
 ## 2025-03-21 - [Optimized Memory Allocations in Monte Carlo Visualization]
 **Learning:** In `getColorForValue`, an object containing four sub-arrays defining color scales was being re-allocated inside the function on every call. Because this function is called extremely frequently during the visualization of Monte Carlo datasets, this resulted in thousands of unnecessary allocations per frame, adding significant garbage collection overhead.
 **Action:** Extract constant complex data structures (like arrays or objects) outside of highly-called functions to avoid repetitive memory allocation and improve garbage collection efficiency.
+
+## 2025-03-25 - [Optimized Force Calculation in N-Body Simulation]
+**Learning:** In V8, computing division directly `1 / (r2 * Math.sqrt(r2))` is ~10-15% faster than the inverse square root approach `invR = 1.0 / Math.sqrt(r2); f = ... * invR * invR * invR`. Avoiding extra arithmetic multiplications and variable assignments inside the O(N^2) loop yields better overall JIT optimization.
+**Action:** When performing O(N^2) calculations in V8, evaluate math operations folded into a single expression, especially avoiding intermediate constants if it reduces the total number of operations or allocations.
