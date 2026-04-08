@@ -8,7 +8,10 @@ import { useRealtimeStore } from '../store/useRealtimeStore';
 import './StatsPanel.css'; // Reuse existing stats panel styles
 
 export function PerformanceStats() {
-  const { simulation, stats, physicsFrameCount, updateStats } = useRealtimeStore();
+  const simulation = useRealtimeStore((state) => state.simulation);
+  const stats = useRealtimeStore((state) => state.stats);
+  const physicsFrameCount = useRealtimeStore((state) => state.physicsFrameCount);
+  const updateStats = useRealtimeStore((state) => state.updateStats);
   const [visible, setVisible] = useState(true);
 
   // Update stats periodically

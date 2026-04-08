@@ -9,7 +9,8 @@ import * as THREE from 'three';
 import { useRealtimeStore } from '../store/useRealtimeStore';
 
 export function RealtimeVisualization() {
-  const { simulation, updateStats } = useRealtimeStore();
+  const simulation = useRealtimeStore((state) => state.simulation);
+  const updateStats = useRealtimeStore((state) => state.updateStats);
   const pointsRef = useRef<THREE.Points>(null);
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   const [stagingBuffer, setStagingBuffer] = useState<GPUBuffer | null>(null);
