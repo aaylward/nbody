@@ -8,7 +8,18 @@ import { initGPU } from '../simulation/nbody';
 import './NBodyControls.css'; // Reuse existing styles
 
 export function RealtimeControls() {
-  const { simulation, isRunning, error, backend, startSimulation, stopSimulation, resetSimulation, setTargetFPS, setBackend, theta, setTheta } = useRealtimeStore();
+  const simulation = useRealtimeStore((state) => state.simulation);
+  const isRunning = useRealtimeStore((state) => state.isRunning);
+  const error = useRealtimeStore((state) => state.error);
+  const backend = useRealtimeStore((state) => state.backend);
+  const startSimulation = useRealtimeStore((state) => state.startSimulation);
+  const stopSimulation = useRealtimeStore((state) => state.stopSimulation);
+  const resetSimulation = useRealtimeStore((state) => state.resetSimulation);
+  const setTargetFPS = useRealtimeStore((state) => state.setTargetFPS);
+  const setBackend = useRealtimeStore((state) => state.setBackend);
+  const theta = useRealtimeStore((state) => state.theta);
+  const setTheta = useRealtimeStore((state) => state.setTheta);
+
   const [numParticles, setNumParticles] = useState(50000);
   const [targetPhysicsFPS, setTargetPhysicsFPS] = useState(20);
   const [isCollapsed, setIsCollapsed] = useState(false);

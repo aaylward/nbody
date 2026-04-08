@@ -37,3 +37,6 @@
 ## 2025-03-21 - [Optimized Memory Allocations in Monte Carlo Visualization]
 **Learning:** In `getColorForValue`, an object containing four sub-arrays defining color scales was being re-allocated inside the function on every call. Because this function is called extremely frequently during the visualization of Monte Carlo datasets, this resulted in thousands of unnecessary allocations per frame, adding significant garbage collection overhead.
 **Action:** Extract constant complex data structures (like arrays or objects) outside of highly-called functions to avoid repetitive memory allocation and improve garbage collection efficiency.
+## 2025-04-08 - [Optimized Zustand Selectors in Render Loop]
+**Learning:** Destructuring multiple properties from a global Zustand store in React components (e.g., `const { a, b } = useStore()`) implicitly subscribes the component to the *entire* store. If the store contains high-frequency values (like `physicsFrameCount` or `stats` updating every 500ms or conditionally every frame), this triggers unnecessary React renders even if the component doesn't render those high-frequency fields.
+**Action:** Always use granular selectors (e.g., `const a = useStore(state => state.a)`) for Zustand subscriptions to ensure components only re-render when the specific properties they depend on change.
