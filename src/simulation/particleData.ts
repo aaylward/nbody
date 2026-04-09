@@ -182,8 +182,19 @@ export function fromParticleObjects(
 ): Float32Array {
   const data = createParticleArray(particles.length);
 
+  // Optimization: Inline property assignments and offset incrementing
+  // to avoid function call overhead of setParticle
+  let offset = 0;
   for (let i = 0; i < particles.length; i++) {
-    setParticle(data, i, particles[i]);
+    const p = particles[i];
+    data[offset + OFFSET_X] = p.x;
+    data[offset + OFFSET_Y] = p.y;
+    data[offset + OFFSET_Z] = p.z;
+    data[offset + OFFSET_VX] = p.vx;
+    data[offset + OFFSET_VY] = p.vy;
+    data[offset + OFFSET_VZ] = p.vz;
+    data[offset + OFFSET_MASS] = p.mass ?? 1;
+    offset += FLOATS_PER_PARTICLE;
   }
 
   return data;
@@ -203,9 +214,21 @@ export function toParticleObjects(data: Float32Array): Array<{
 }> {
   const numParticles = getParticleCount(data);
   const particles = new Array(numParticles);
+  const numFloats = numParticles * FLOATS_PER_PARTICLE;
 
-  for (let i = 0; i < numParticles; i++) {
-    particles[i] = getParticle(data, i);
+  // Optimization: Inline property reading and offset incrementing
+  // to avoid function call overhead of getParticle (~2x faster)
+  let pIdx = 0;
+  for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
+    particles[pIdx++] = {
+      x: data[offset + OFFSET_X],
+      y: data[offset + OFFSET_Y],
+      z: data[offset + OFFSET_Z],
+      vx: data[offset + OFFSET_VX],
+      vy: data[offset + OFFSET_VY],
+      vz: data[offset + OFFSET_VZ],
+      mass: data[offset + OFFSET_MASS],
+    };
   }
 
   return particles;
@@ -217,12 +240,14 @@ export function toParticleObjects(data: Float32Array): Array<{
 export function extractPositions(data: Float32Array, out?: Float32Array): Float32Array {
   const numParticles = getParticleCount(data);
   const positions = out || new Float32Array(numParticles * 3);
+  const numFloats = numParticles * FLOATS_PER_PARTICLE;
 
-  for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
-    positions[i * 3 + 0] = data[offset + OFFSET_X];
-    positions[i * 3 + 1] = data[offset + OFFSET_Y];
-    positions[i * 3 + 2] = data[offset + OFFSET_Z];
+  // Optimization: Iterate by offset directly rather than calculating per particle
+  let pIdx = 0;
+  for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
+    positions[pIdx++] = data[offset + OFFSET_X];
+    positions[pIdx++] = data[offset + OFFSET_Y];
+    positions[pIdx++] = data[offset + OFFSET_Z];
   }
 
   return positions;
@@ -234,12 +259,14 @@ export function extractPositions(data: Float32Array, out?: Float32Array): Float3
 export function extractVelocities(data: Float32Array): Float32Array {
   const numParticles = getParticleCount(data);
   const velocities = new Float32Array(numParticles * 3);
+  const numFloats = numParticles * FLOATS_PER_PARTICLE;
 
-  for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
-    velocities[i * 3 + 0] = data[offset + OFFSET_VX];
-    velocities[i * 3 + 1] = data[offset + OFFSET_VY];
-    velocities[i * 3 + 2] = data[offset + OFFSET_VZ];
+  // Optimization: Iterate by offset directly rather than calculating per particle
+  let vIdx = 0;
+  for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
+    velocities[vIdx++] = data[offset + OFFSET_VX];
+    velocities[vIdx++] = data[offset + OFFSET_VY];
+    velocities[vIdx++] = data[offset + OFFSET_VZ];
   }
 
   return velocities;
