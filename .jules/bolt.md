@@ -40,3 +40,7 @@
 ## 2025-04-08 - [Optimized Zustand Selectors in Render Loop]
 **Learning:** Destructuring multiple properties from a global Zustand store in React components (e.g., `const { a, b } = useStore()`) implicitly subscribes the component to the *entire* store. If the store contains high-frequency values (like `physicsFrameCount` or `stats` updating every 500ms or conditionally every frame), this triggers unnecessary React renders even if the component doesn't render those high-frequency fields.
 **Action:** Always use granular selectors (e.g., `const a = useStore(state => state.a)`) for Zustand subscriptions to ensure components only re-render when the specific properties they depend on change.
+
+## 2025-05-18 - [Removed Redundant UI Updates in Hot Render Loop]
+**Learning:** Calling `Math.random()` and triggering global Zustand state updates (`updateStats()`) conditionally on every frame (via `useFrame`) introduces unnecessary overhead in a hot rendering loop, especially when there's already a dedicated interval for it. This stochastically blocks the render thread without providing consistent UX benefits.
+**Action:** Remove intermittent state update calls from hot loops (`useFrame` or `requestAnimationFrame`) if they are already handled by a predictable `setInterval` or `setTimeout` elsewhere in the application architecture (e.g. inside the component that actually displays the stats).

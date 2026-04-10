@@ -10,7 +10,6 @@ import { useRealtimeStore } from '../store/useRealtimeStore';
 
 export function RealtimeVisualization() {
   const simulation = useRealtimeStore((state) => state.simulation);
-  const updateStats = useRealtimeStore((state) => state.updateStats);
   const pointsRef = useRef<THREE.Points>(null);
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   const [stagingBuffer, setStagingBuffer] = useState<GPUBuffer | null>(null);
@@ -124,10 +123,6 @@ export function RealtimeVisualization() {
 
     const elapsed = performance.now() - startTime;
     simulation.monitor.recordRenderFrame(elapsed);
-
-    if (Math.random() < 0.1) {
-      updateStats();
-    }
   });
 
   if (!simulation || !geometry) return null;
