@@ -40,7 +40,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   private velocityBuffer: GPUBuffer;
   private forcesBuffer: GPUBuffer;
   private octreeBuffer: GPUBuffer;
-  private uniformsBuffer: GPUBuffer;
+  // Separate uniform buffers per pipeline — the two shaders declare
+  // different Uniforms struct layouts at binding 3, so they cannot share
+  // a single buffer without one pass misreading the other's fields.
+  private forcesUniformsBuffer: GPUBuffer;
+  private integrateUniformsBuffer: GPUBuffer;
   private stagingBuffer: GPUBuffer; // Reuse staging buffer for downloads
   private forcesPipeline: GPUComputePipeline;
   private integratePipeline: GPUComputePipeline;
@@ -120,8 +124,13 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     this.octreeIntView = new Uint32Array(this.octreeScratch);
     this.bfsNodeQueue = new Array(maxOctreeNodes).fill(null);
 
-    this.uniformsBuffer = this.device.createBuffer({
-      size: 16, // 4 floats: numParticles, theta, G, softening (or deltaT)
+    this.forcesUniformsBuffer = this.device.createBuffer({
+      size: 16, // numParticles (u32), theta, G, softening
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.integrateUniformsBuffer = this.device.createBuffer({
+      size: 16, // numParticles (u32), deltaT, 8 bytes padding
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -133,6 +142,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // Upload initial data
     this.uploadParticlesToGPU();
     this.uploadVelocitiesToGPU();
+
+    // The integrate pipeline's uniforms never change at runtime in the
+    // current code path — write them once here and leave the buffer alone.
+    const integrateUniforms = new Float32Array([this.numParticles, this.deltaT]);
+    this.device.queue.writeBuffer(this.integrateUniformsBuffer, 0, integrateUniforms);
 
     // Create compute pipelines
     this.forcesPipeline = this.createForcesPipeline();
@@ -493,16 +507,16 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       );
       const serializeTime = performance.now() - serializeStart;
 
-      // 4. Update uniforms
-      const uniforms = new Float32Array([
+      // 4. Update forces uniforms (theta may change at runtime via setTheta).
+      const forcesUniforms = new Float32Array([
         this.numParticles,
         this.theta,
         1.0, // G
         2.0, // softening
       ]);
-      this.device.queue.writeBuffer(this.uniformsBuffer, 0, uniforms);
+      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniforms);
 
-      // 5. Create bind groups (if not already created or if octree changed)
+      // 5. Create bind groups (one-time).
       if (!this.forcesBindGroup) {
         this.forcesBindGroup = this.device.createBindGroup({
           layout: this.forcesPipeline.getBindGroupLayout(0),
@@ -510,22 +524,19 @@ export class RealtimeNBodySimulationGPUBarnesHut {
             { binding: 0, resource: { buffer: this.particleBuffer } },
             { binding: 1, resource: { buffer: this.octreeBuffer } },
             { binding: 2, resource: { buffer: this.forcesBuffer } },
-            { binding: 3, resource: { buffer: this.uniformsBuffer } },
+            { binding: 3, resource: { buffer: this.forcesUniformsBuffer } },
           ],
         });
       }
 
       if (!this.integrateBindGroup) {
-        const integrateUniforms = new Float32Array([this.numParticles, this.deltaT]);
-        this.device.queue.writeBuffer(this.uniformsBuffer, 0, integrateUniforms);
-
         this.integrateBindGroup = this.device.createBindGroup({
           layout: this.integratePipeline.getBindGroupLayout(0),
           entries: [
             { binding: 0, resource: { buffer: this.particleBuffer } },
             { binding: 1, resource: { buffer: this.forcesBuffer } },
             { binding: 2, resource: { buffer: this.velocityBuffer } },
-            { binding: 3, resource: { buffer: this.uniformsBuffer } },
+            { binding: 3, resource: { buffer: this.integrateUniformsBuffer } },
           ],
         });
       }
@@ -657,7 +668,8 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     this.velocityBuffer.destroy();
     this.forcesBuffer.destroy();
     this.octreeBuffer.destroy();
-    this.uniformsBuffer.destroy();
+    this.forcesUniformsBuffer.destroy();
+    this.integrateUniformsBuffer.destroy();
     this.stagingBuffer.destroy();
   }
 }
