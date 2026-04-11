@@ -67,10 +67,15 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // Initialize performance monitor
     this.monitor = new PerformanceMonitor();
 
-    // Create GPU buffers
-    const particleBufferSize = this.numParticles * 4 * 4; // 4 floats per particle (x,y,z,mass)
-    const velocityBufferSize = this.numParticles * 3 * 4; // 3 floats per particle (vx,vy,vz)
-    const forcesBufferSize = this.numParticles * 3 * 4; // 3 floats per particle (fx,fy,fz)
+    // Create GPU buffers.
+    // NOTE: velocity and forces are declared as array<vec3f> in the shaders.
+    // In WGSL, vec3<f32> has size 12 but alignment 16, so an array element
+    // stride is 16 bytes (the trailing 4 bytes are padding). The buffer
+    // allocation and the CPU-side packing must both honor the 16-byte stride,
+    // otherwise the shader reads misaligned garbage and runs out of bounds.
+    const particleBufferSize = this.numParticles * 4 * 4; // vec3f pos + f32 mass = 16 bytes
+    const velocityBufferSize = this.numParticles * 4 * 4; // vec3f stride = 16 bytes
+    const forcesBufferSize = this.numParticles * 4 * 4;   // vec3f stride = 16 bytes
     const maxOctreeNodes = this.numParticles * 8; // Worst case: many internal nodes
     const octreeBufferSize = maxOctreeNodes * BYTES_PER_NODE;
 
@@ -162,14 +167,17 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   }
 
   private uploadVelocitiesToGPU(): void {
-    // Pack velocities for GPU: [vx, vy, vz] per particle
-    const velocities = new Float32Array(this.numParticles * 3);
+    // Pack velocities for GPU: [vx, vy, vz, _pad] per particle.
+    // The shader sees this as array<vec3f>, which has a 16-byte stride, so
+    // each velocity needs a 4-float slot on the host side too.
+    const velocities = new Float32Array(this.numParticles * 4);
     for (let i = 0; i < this.numParticles; i++) {
       const offset = i * 7; // CPU format
-      const vOffset = i * 3;
+      const vOffset = i * 4;
       velocities[vOffset + 0] = this.particlesCPU[offset + 3]; // vx
       velocities[vOffset + 1] = this.particlesCPU[offset + 4]; // vy
       velocities[vOffset + 2] = this.particlesCPU[offset + 5]; // vz
+      // velocities[vOffset + 3] left as 0 (padding)
     }
 
     this.device.queue.writeBuffer(this.velocityBuffer, 0, velocities);
