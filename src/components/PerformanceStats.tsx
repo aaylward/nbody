@@ -90,7 +90,7 @@ export function PerformanceStats() {
             <small>
               ℹ️ Render @ 60 FPS via interpolation
               <br />
-              Physics @ ~20 FPS (GPU brute-force)
+              Physics @ ~{simulation.targetPhysicsFPS} FPS target
             </small>
           </div>
         </div>

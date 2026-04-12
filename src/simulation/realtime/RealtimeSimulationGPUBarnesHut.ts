@@ -7,6 +7,14 @@ import {
   createParticleArray,
   setParticle,
   removeCenterOfMassVelocity,
+  FLOATS_PER_PARTICLE,
+  OFFSET_X,
+  OFFSET_Y,
+  OFFSET_Z,
+  OFFSET_VX,
+  OFFSET_VY,
+  OFFSET_VZ,
+  OFFSET_MASS,
 } from '../particleData';
 import { Octree, OctreeNode } from '../barnesHut/octree';
 import { PerformanceMonitor } from './performanceMonitor';
@@ -145,8 +153,10 @@ export class RealtimeNBodySimulationGPUBarnesHut {
 
     // The integrate pipeline's uniforms never change at runtime in the
     // current code path — write them once here and leave the buffer alone.
-    const integrateUniforms = new Float32Array([this.numParticles, this.deltaT]);
-    this.device.queue.writeBuffer(this.integrateUniformsBuffer, 0, integrateUniforms);
+    const integrateUniformsBuf = new ArrayBuffer(16);
+    new Uint32Array(integrateUniformsBuf, 0, 1)[0] = this.numParticles;
+    new Float32Array(integrateUniformsBuf)[1] = this.deltaT;
+    this.device.queue.writeBuffer(this.integrateUniformsBuffer, 0, integrateUniformsBuf);
 
     // Create compute pipelines
     this.forcesPipeline = this.createForcesPipeline();
@@ -185,12 +195,12 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // Pack particles for GPU: [x, y, z, mass] per particle
     const gpuData = new Float32Array(this.numParticles * 4);
     for (let i = 0; i < this.numParticles; i++) {
-      const offset = i * 7; // CPU format
+      const offset = i * FLOATS_PER_PARTICLE;
       const gpuOffset = i * 4;
-      gpuData[gpuOffset + 0] = this.particlesCPU[offset + 0]; // x
-      gpuData[gpuOffset + 1] = this.particlesCPU[offset + 1]; // y
-      gpuData[gpuOffset + 2] = this.particlesCPU[offset + 2]; // z
-      gpuData[gpuOffset + 3] = this.particlesCPU[offset + 6]; // mass
+      gpuData[gpuOffset + 0] = this.particlesCPU[offset + OFFSET_X];
+      gpuData[gpuOffset + 1] = this.particlesCPU[offset + OFFSET_Y];
+      gpuData[gpuOffset + 2] = this.particlesCPU[offset + OFFSET_Z];
+      gpuData[gpuOffset + 3] = this.particlesCPU[offset + OFFSET_MASS];
     }
 
     this.device.queue.writeBuffer(this.particleBuffer, 0, gpuData);
@@ -202,11 +212,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // each velocity needs a 4-float slot on the host side too.
     const velocities = new Float32Array(this.numParticles * 4);
     for (let i = 0; i < this.numParticles; i++) {
-      const offset = i * 7; // CPU format
+      const offset = i * FLOATS_PER_PARTICLE;
       const vOffset = i * 4;
-      velocities[vOffset + 0] = this.particlesCPU[offset + 3]; // vx
-      velocities[vOffset + 1] = this.particlesCPU[offset + 4]; // vy
-      velocities[vOffset + 2] = this.particlesCPU[offset + 5]; // vz
+      velocities[vOffset + 0] = this.particlesCPU[offset + OFFSET_VX];
+      velocities[vOffset + 1] = this.particlesCPU[offset + OFFSET_VY];
+      velocities[vOffset + 2] = this.particlesCPU[offset + OFFSET_VZ];
       // velocities[vOffset + 3] left as 0 (padding)
     }
 
@@ -508,13 +518,15 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       const serializeTime = performance.now() - serializeStart;
 
       // 4. Update forces uniforms (theta may change at runtime via setTheta).
-      const forcesUniforms = new Float32Array([
-        this.numParticles,
-        this.theta,
-        1.0, // G
-        2.0, // softening
-      ]);
-      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniforms);
+      // numParticles must be written as u32 (not f32) because the shader
+      // declares it as u32 — the raw bits are reinterpreted, not converted.
+      const forcesUniformsBuf = new ArrayBuffer(16);
+      new Uint32Array(forcesUniformsBuf, 0, 1)[0] = this.numParticles;
+      const forcesUniformsF32 = new Float32Array(forcesUniformsBuf);
+      forcesUniformsF32[1] = this.theta;
+      forcesUniformsF32[2] = 1.0; // G
+      forcesUniformsF32[3] = 2.0; // softening
+      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniformsBuf);
 
       // 5. Create bind groups (one-time).
       if (!this.forcesBindGroup) {
@@ -615,12 +627,12 @@ export class RealtimeNBodySimulationGPUBarnesHut {
 
     // Unpack back to CPU format
     for (let i = 0; i < this.numParticles; i++) {
-      const offset = i * 7;
+      const offset = i * FLOATS_PER_PARTICLE;
       const gpuOffset = i * 4;
-      this.particlesCPU[offset + 0] = gpuData[gpuOffset + 0]; // x
-      this.particlesCPU[offset + 1] = gpuData[gpuOffset + 1]; // y
-      this.particlesCPU[offset + 2] = gpuData[gpuOffset + 2]; // z
-      this.particlesCPU[offset + 6] = gpuData[gpuOffset + 3]; // mass
+      this.particlesCPU[offset + OFFSET_X] = gpuData[gpuOffset + 0];
+      this.particlesCPU[offset + OFFSET_Y] = gpuData[gpuOffset + 1];
+      this.particlesCPU[offset + OFFSET_Z] = gpuData[gpuOffset + 2];
+      this.particlesCPU[offset + OFFSET_MASS] = gpuData[gpuOffset + 3];
     }
 
     this.stagingBuffer.unmap();
