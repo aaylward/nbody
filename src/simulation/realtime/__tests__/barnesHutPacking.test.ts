@@ -1,9 +1,8 @@
 /**
  * Tests for the CPU↔GPU data packing used by RealtimeSimulationGPUBarnesHut.
  *
- * The class itself requires a GPUDevice, but the packing logic is pure
- * typed-array arithmetic over the shared particle layout constants. These
- * tests verify the stride and offset math that previously caused a
+ * These test the actual production functions from barnesHutPacking.ts,
+ * verifying the stride and offset math that previously caused a
  * flash-then-blank bug (stride 7 vs the actual FLOATS_PER_PARTICLE = 8).
  */
 
@@ -20,45 +19,11 @@ import {
   OFFSET_VZ,
   OFFSET_MASS,
 } from '../../particleData';
-
-/** Replicates uploadParticlesToGPU packing: CPU stride-8 → GPU [x,y,z,mass] stride-4 */
-function packParticlesForGPU(cpu: Float32Array, n: number): Float32Array {
-  const gpu = new Float32Array(n * 4);
-  for (let i = 0; i < n; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
-    const gpuOffset = i * 4;
-    gpu[gpuOffset + 0] = cpu[offset + OFFSET_X];
-    gpu[gpuOffset + 1] = cpu[offset + OFFSET_Y];
-    gpu[gpuOffset + 2] = cpu[offset + OFFSET_Z];
-    gpu[gpuOffset + 3] = cpu[offset + OFFSET_MASS];
-  }
-  return gpu;
-}
-
-/** Replicates uploadVelocitiesToGPU packing: CPU stride-8 → GPU [vx,vy,vz,0] stride-4 */
-function packVelocitiesForGPU(cpu: Float32Array, n: number): Float32Array {
-  const gpu = new Float32Array(n * 4);
-  for (let i = 0; i < n; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
-    const vOffset = i * 4;
-    gpu[vOffset + 0] = cpu[offset + OFFSET_VX];
-    gpu[vOffset + 1] = cpu[offset + OFFSET_VY];
-    gpu[vOffset + 2] = cpu[offset + OFFSET_VZ];
-  }
-  return gpu;
-}
-
-/** Replicates downloadParticlesFromGPU unpacking: GPU [x,y,z,mass] stride-4 → CPU stride-8 */
-function unpackParticlesFromGPU(gpuData: Float32Array, cpu: Float32Array, n: number): void {
-  for (let i = 0; i < n; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
-    const gpuOffset = i * 4;
-    cpu[offset + OFFSET_X] = gpuData[gpuOffset + 0];
-    cpu[offset + OFFSET_Y] = gpuData[gpuOffset + 1];
-    cpu[offset + OFFSET_Z] = gpuData[gpuOffset + 2];
-    cpu[offset + OFFSET_MASS] = gpuData[gpuOffset + 3];
-  }
-}
+import {
+  packParticlesForGPU,
+  packVelocitiesForGPU,
+  unpackParticlesFromGPU,
+} from '../barnesHutPacking';
 
 describe('Barnes-Hut CPU↔GPU packing', () => {
   const N = 5;

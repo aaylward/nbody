@@ -7,16 +7,9 @@ import {
   createParticleArray,
   setParticle,
   removeCenterOfMassVelocity,
-  FLOATS_PER_PARTICLE,
-  OFFSET_X,
-  OFFSET_Y,
-  OFFSET_Z,
-  OFFSET_VX,
-  OFFSET_VY,
-  OFFSET_VZ,
-  OFFSET_MASS,
 } from '../particleData';
 import { Octree, OctreeNode } from '../barnesHut/octree';
+import { packParticlesForGPU, packVelocitiesForGPU, unpackParticlesFromGPU } from './barnesHutPacking';
 import { PerformanceMonitor } from './performanceMonitor';
 
 export interface RealtimeSimulationGPUBarnesHutOptions {
@@ -192,34 +185,12 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   }
 
   private uploadParticlesToGPU(): void {
-    // Pack particles for GPU: [x, y, z, mass] per particle
-    const gpuData = new Float32Array(this.numParticles * 4);
-    for (let i = 0; i < this.numParticles; i++) {
-      const offset = i * FLOATS_PER_PARTICLE;
-      const gpuOffset = i * 4;
-      gpuData[gpuOffset + 0] = this.particlesCPU[offset + OFFSET_X];
-      gpuData[gpuOffset + 1] = this.particlesCPU[offset + OFFSET_Y];
-      gpuData[gpuOffset + 2] = this.particlesCPU[offset + OFFSET_Z];
-      gpuData[gpuOffset + 3] = this.particlesCPU[offset + OFFSET_MASS];
-    }
-
+    const gpuData = packParticlesForGPU(this.particlesCPU, this.numParticles);
     this.device.queue.writeBuffer(this.particleBuffer, 0, gpuData);
   }
 
   private uploadVelocitiesToGPU(): void {
-    // Pack velocities for GPU: [vx, vy, vz, _pad] per particle.
-    // The shader sees this as array<vec3f>, which has a 16-byte stride, so
-    // each velocity needs a 4-float slot on the host side too.
-    const velocities = new Float32Array(this.numParticles * 4);
-    for (let i = 0; i < this.numParticles; i++) {
-      const offset = i * FLOATS_PER_PARTICLE;
-      const vOffset = i * 4;
-      velocities[vOffset + 0] = this.particlesCPU[offset + OFFSET_VX];
-      velocities[vOffset + 1] = this.particlesCPU[offset + OFFSET_VY];
-      velocities[vOffset + 2] = this.particlesCPU[offset + OFFSET_VZ];
-      // velocities[vOffset + 3] left as 0 (padding)
-    }
-
+    const velocities = packVelocitiesForGPU(this.particlesCPU, this.numParticles);
     this.device.queue.writeBuffer(this.velocityBuffer, 0, velocities);
   }
 
@@ -625,15 +596,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     await this.stagingBuffer.mapAsync(GPUMapMode.READ);
     const gpuData = new Float32Array(this.stagingBuffer.getMappedRange());
 
-    // Unpack back to CPU format
-    for (let i = 0; i < this.numParticles; i++) {
-      const offset = i * FLOATS_PER_PARTICLE;
-      const gpuOffset = i * 4;
-      this.particlesCPU[offset + OFFSET_X] = gpuData[gpuOffset + 0];
-      this.particlesCPU[offset + OFFSET_Y] = gpuData[gpuOffset + 1];
-      this.particlesCPU[offset + OFFSET_Z] = gpuData[gpuOffset + 2];
-      this.particlesCPU[offset + OFFSET_MASS] = gpuData[gpuOffset + 3];
-    }
+    unpackParticlesFromGPU(gpuData, this.particlesCPU, this.numParticles);
 
     this.stagingBuffer.unmap();
   }
