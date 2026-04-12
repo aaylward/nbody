@@ -44,3 +44,10 @@
 ## 2025-05-18 - [Removed Redundant UI Updates in Hot Render Loop]
 **Learning:** Calling `Math.random()` and triggering global Zustand state updates (`updateStats()`) conditionally on every frame (via `useFrame`) introduces unnecessary overhead in a hot rendering loop, especially when there's already a dedicated interval for it. This stochastically blocks the render thread without providing consistent UX benefits.
 **Action:** Remove intermittent state update calls from hot loops (`useFrame` or `requestAnimationFrame`) if they are already handled by a predictable `setInterval` or `setTimeout` elsewhere in the application architecture (e.g. inside the component that actually displays the stats).
+## 2024-05-31 - [Optimized Memory Writes in Hot Loops]
+**Learning:** When interpolating large packed TypedArrays (e.g., in `interpolateSnapshots`), using `TypedArray.set()` for fast memory copies of initial states is good. However, avoid in-place linear interpolation (`a += (b - a) * t`) in the innermost loops; instead, use local variables and direct assignments (`a = ...`) to prevent slow memory read-modify-store cycles in V8.
+**Action:** Use local variables and direct assignment inside O(N) hot loops.
+
+## 2024-05-31 - [Hoisted Array Offset Arithmetic]
+**Learning:** In V8 hot loops processing TypedArrays, hoisting array offset calculations (e.g., `const offX = offset + OFFSET_X`) outside of inner loops reduces loop-invariant arithmetic and provides measurable performance gains.
+**Action:** Hoist offset index calculations inside iteration blocks to optimize array property accesses.
