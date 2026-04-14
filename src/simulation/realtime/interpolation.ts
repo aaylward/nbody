@@ -31,11 +31,18 @@ export function interpolateParticles(
   }
 
   const result = new Float32Array(frame0.length);
-  const oneMinusAlpha = 1 - alpha;
+  // Optimization: Fast copy of initial state (preserves mass and padding)
+  result.set(frame0);
 
-  // Linear interpolation for all components
-  for (let i = 0; i < frame0.length; i++) {
-    result[i] = frame0[i] * oneMinusAlpha + frame1[i] * alpha;
+  // Linear interpolation for all changing components using offset iterations
+  for (let offset = 0; offset < frame0.length; offset += FLOATS_PER_PARTICLE) {
+    result[offset + OFFSET_X] += (frame1[offset + OFFSET_X] - frame0[offset + OFFSET_X]) * alpha;
+    result[offset + OFFSET_Y] += (frame1[offset + OFFSET_Y] - frame0[offset + OFFSET_Y]) * alpha;
+    result[offset + OFFSET_Z] += (frame1[offset + OFFSET_Z] - frame0[offset + OFFSET_Z]) * alpha;
+
+    result[offset + OFFSET_VX] += (frame1[offset + OFFSET_VX] - frame0[offset + OFFSET_VX]) * alpha;
+    result[offset + OFFSET_VY] += (frame1[offset + OFFSET_VY] - frame0[offset + OFFSET_VY]) * alpha;
+    result[offset + OFFSET_VZ] += (frame1[offset + OFFSET_VZ] - frame0[offset + OFFSET_VZ]) * alpha;
   }
 
   return result;
@@ -57,8 +64,9 @@ export function interpolateParticlesSmooth(
     throw new Error('Frame arrays must have the same length');
   }
 
-  const numParticles = frame0.length / FLOATS_PER_PARTICLE;
   const result = new Float32Array(frame0.length);
+  // Optimization: Fast copy of initial state (preserves mass and padding)
+  result.set(frame0);
 
   // Hermite basis functions
   const t = alpha;
@@ -70,31 +78,22 @@ export function interpolateParticlesSmooth(
   const h01 = -2 * t3 + 3 * t2; // Position at t=1
   const h11 = t3 - t2; // Velocity at t=1
 
-  const posOffsets = [OFFSET_X, OFFSET_Y, OFFSET_Z];
-  const velOffsets = [OFFSET_VX, OFFSET_VY, OFFSET_VZ];
   const oneMinusAlpha = 1 - alpha;
 
-  for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
-
+  for (let offset = 0; offset < frame0.length; offset += FLOATS_PER_PARTICLE) {
     // Hermite interpolation for position (x, y, z) using corresponding velocity components
-    for (let j = 0; j < 3; j++) {
-      const pos0 = frame0[offset + posOffsets[j]];
-      const vel0 = frame0[offset + velOffsets[j]];
-      const pos1 = frame1[offset + posOffsets[j]];
-      const vel1 = frame1[offset + velOffsets[j]];
+    const v0x = frame0[offset + OFFSET_VX];
+    const v0y = frame0[offset + OFFSET_VY];
+    const v0z = frame0[offset + OFFSET_VZ];
 
-      result[offset + posOffsets[j]] = h00 * pos0 + h10 * vel0 + h01 * pos1 + h11 * vel1;
-    }
+    result[offset + OFFSET_X] = h00 * frame0[offset + OFFSET_X] + h10 * v0x + h01 * frame1[offset + OFFSET_X] + h11 * frame1[offset + OFFSET_VX];
+    result[offset + OFFSET_Y] = h00 * frame0[offset + OFFSET_Y] + h10 * v0y + h01 * frame1[offset + OFFSET_Y] + h11 * frame1[offset + OFFSET_VY];
+    result[offset + OFFSET_Z] = h00 * frame0[offset + OFFSET_Z] + h10 * v0z + h01 * frame1[offset + OFFSET_Z] + h11 * frame1[offset + OFFSET_VZ];
 
     // Linear interpolation for velocity (vx, vy, vz)
-    for (let j = 0; j < 3; j++) {
-      const v = velOffsets[j];
-      result[offset + v] = frame0[offset + v] * oneMinusAlpha + frame1[offset + v] * alpha;
-    }
-
-    // Mass doesn't interpolate
-    result[offset + OFFSET_MASS] = frame0[offset + OFFSET_MASS];
+    result[offset + OFFSET_VX] = v0x * oneMinusAlpha + frame1[offset + OFFSET_VX] * alpha;
+    result[offset + OFFSET_VY] = v0y * oneMinusAlpha + frame1[offset + OFFSET_VY] * alpha;
+    result[offset + OFFSET_VZ] = v0z * oneMinusAlpha + frame1[offset + OFFSET_VZ] * alpha;
   }
 
   return result;
