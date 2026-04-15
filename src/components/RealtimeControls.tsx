@@ -19,6 +19,8 @@ export function RealtimeControls() {
   const setBackend = useRealtimeStore((state) => state.setBackend);
   const theta = useRealtimeStore((state) => state.theta);
   const setTheta = useRealtimeStore((state) => state.setTheta);
+  const octreeRebuildInterval = useRealtimeStore((state) => state.octreeRebuildInterval);
+  const setOctreeRebuildInterval = useRealtimeStore((state) => state.setOctreeRebuildInterval);
 
   const [numParticles, setNumParticles] = useState(50000);
   const [targetPhysicsFPS, setTargetPhysicsFPS] = useState(20);
@@ -131,23 +133,42 @@ export function RealtimeControls() {
           </div>
 
           {backend === 'gpu-barnes-hut' && (
-            <div className="control-group">
-              <label>
-                Barnes-Hut Theta (θ):{' '}
-                <span className="value-display">{theta.toFixed(2)}</span>
-              </label>
-              <input
-                type="range"
-                min="0.1"
-                max="1.5"
-                step="0.1"
-                value={theta}
-                onChange={(e) => setTheta(parseFloat(e.target.value))}
-              />
-              <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px' }}>
-                Lower = more accurate, slower | Higher = faster, less accurate
+            <>
+              <div className="control-group">
+                <label>
+                  Barnes-Hut Theta (θ):{' '}
+                  <span className="value-display">{theta.toFixed(2)}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.5"
+                  step="0.1"
+                  value={theta}
+                  onChange={(e) => setTheta(parseFloat(e.target.value))}
+                />
+                <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px' }}>
+                  Lower = more accurate, slower | Higher = faster, less accurate
+                </div>
               </div>
-            </div>
+              <div className="control-group">
+                <label>
+                  Octree Rebuild Interval:{' '}
+                  <span className="value-display">every {octreeRebuildInterval} frames</span>
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="16"
+                  step="1"
+                  value={octreeRebuildInterval}
+                  onChange={(e) => setOctreeRebuildInterval(parseInt(e.target.value))}
+                />
+                <div style={{ fontSize: '11px', color: '#aaa', marginTop: '4px' }}>
+                  Higher = faster (reuses stale tree) | 1 = rebuild every frame
+                </div>
+              </div>
+            </>
           )}
 
           <div className="control-group">
@@ -158,7 +179,7 @@ export function RealtimeControls() {
             <input
               type="range"
               min="1000"
-              max="100000"
+              max="500000"
               step="1000"
               value={numParticles}
               onChange={(e) => setNumParticles(parseInt(e.target.value))}

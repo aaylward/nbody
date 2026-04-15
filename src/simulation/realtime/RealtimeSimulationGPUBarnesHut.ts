@@ -18,6 +18,7 @@ export interface RealtimeSimulationGPUBarnesHutOptions {
   deltaT?: number;
   targetPhysicsFPS?: number;
   theta?: number;
+  octreeRebuildInterval?: number;
 }
 
 // Octree node format for GPU (flatten for buffer)
@@ -55,6 +56,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   // CPU octree
   private particlesCPU: Float32Array;
   private theta: number;
+  private octreeRebuildInterval: number;
   public targetPhysicsFPS: number;
   public monitor: PerformanceMonitor;
 
@@ -72,6 +74,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     this.deltaT = options.deltaT ?? 0.01;
     this.targetPhysicsFPS = options.targetPhysicsFPS ?? 20;
     this.theta = options.theta ?? 0.8;
+    this.octreeRebuildInterval = options.octreeRebuildInterval ?? 4;
 
     // Initialize CPU particle array for octree building
     this.particlesCPU = createParticleArray(this.numParticles);
@@ -465,28 +468,40 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       const startTime = performance.now();
+      const rebuildThisFrame = frameCount % this.octreeRebuildInterval === 0;
 
-      // 1. Download particles from GPU to CPU for octree building
-      const downloadStart = performance.now();
-      await this.downloadParticlesFromGPU();
-      const downloadTime = performance.now() - downloadStart;
+      // Steps 1-3 only run on rebuild frames. Between rebuilds the GPU
+      // reuses the last uploaded octree — forces are slightly stale but
+      // the error is comparable to raising theta by a small amount.
+      let downloadTime = 0;
+      let buildTime = 0;
+      let serializeTime = 0;
+      let nodeCount = 0;
 
-      // 2. Build octree on CPU
-      const buildStart = performance.now();
-      const octree = new Octree(this.particlesCPU);
-      const buildTime = performance.now() - buildStart;
+      if (rebuildThisFrame) {
+        // 1. Download particles from GPU to CPU for octree building
+        const downloadStart = performance.now();
+        await this.downloadParticlesFromGPU();
+        downloadTime = performance.now() - downloadStart;
 
-      // 3. Serialize and upload octree to GPU
-      const serializeStart = performance.now();
-      const { view: octreeView, nodeCount } = this.serializeOctree(octree);
-      this.device.queue.writeBuffer(
-        this.octreeBuffer,
-        0,
-        octreeView.buffer,
-        octreeView.byteOffset,
-        octreeView.byteLength
-      );
-      const serializeTime = performance.now() - serializeStart;
+        // 2. Build octree on CPU
+        const buildStart = performance.now();
+        const octree = new Octree(this.particlesCPU);
+        buildTime = performance.now() - buildStart;
+
+        // 3. Serialize and upload octree to GPU
+        const serializeStart = performance.now();
+        const { view: octreeView, nodeCount: nc } = this.serializeOctree(octree);
+        this.device.queue.writeBuffer(
+          this.octreeBuffer,
+          0,
+          octreeView.buffer,
+          octreeView.byteOffset,
+          octreeView.byteLength
+        );
+        serializeTime = performance.now() - serializeStart;
+        nodeCount = nc;
+      }
 
       // 4. Update forces uniforms (theta may change at runtime via setTheta).
       // numParticles must be written as u32 (not f32) because the shader
@@ -556,7 +571,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       const gpuTime = performance.now() - gpuStart;
 
       if (frameCount === 0) {
-        console.log(`GPU Barnes-Hut profile:`);
+        console.log(`GPU Barnes-Hut profile (rebuild every ${this.octreeRebuildInterval} frames):`);
         console.log(`  Download: ${downloadTime.toFixed(1)}ms`);
         console.log(`  Build octree: ${buildTime.toFixed(1)}ms (${nodeCount} nodes)`);
         console.log(`  Serialize: ${serializeTime.toFixed(1)}ms`);
@@ -627,6 +642,14 @@ export class RealtimeNBodySimulationGPUBarnesHut {
 
   getTheta(): number {
     return this.theta;
+  }
+
+  setOctreeRebuildInterval(interval: number): void {
+    this.octreeRebuildInterval = Math.max(1, Math.min(16, interval));
+  }
+
+  getOctreeRebuildInterval(): number {
+    return this.octreeRebuildInterval;
   }
 
   getPhysicsProgress(): number {
