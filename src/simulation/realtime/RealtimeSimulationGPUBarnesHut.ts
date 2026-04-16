@@ -56,7 +56,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   private octreeRebuildInterval: number;
   private rebuildPhase: 'idle' | 'downloading' | 'building' = 'idle';
   private downloadPromise: Promise<void> | null = null;
-  private pendingOctreeResult: { buffer: ArrayBuffer; nodeCount: number } | null = null;
+  private pendingOctreeResult: { buffer: ArrayBuffer; nodeCount: number; particleData: ArrayBuffer } | null = null;
   private framesSinceRebuild = 0;
   public targetPhysicsFPS: number;
   public monitor: PerformanceMonitor;
@@ -102,7 +102,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // Spawn worker for off-thread octree construction
     this.octreeWorker = new OctreeWorker();
     this.octreeWorker.onmessage = (e: MessageEvent) => {
-      this.pendingOctreeResult = e.data as { buffer: ArrayBuffer; nodeCount: number };
+      this.pendingOctreeResult = e.data as { buffer: ArrayBuffer; nodeCount: number; particleData: ArrayBuffer };
     };
 
     this.particleBuffer = this.device.createBuffer({
@@ -542,6 +542,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
         if (frameCount <= 2) {
           console.log(`  Octree uploaded (${this.pendingOctreeResult.nodeCount} nodes)`);
         }
+
+        // Restore ownership of the CPU particle buffer from the worker
+        // so we can reuse it for the next download phase without reallocating.
+        this.particlesCPU = new Float32Array(this.pendingOctreeResult.particleData);
+
         this.pendingOctreeResult = null;
         this.rebuildPhase = 'idle';
         this.framesSinceRebuild = 0;
@@ -554,8 +559,9 @@ export class RealtimeNBodySimulationGPUBarnesHut {
         this.stagingBuffer.unmap();
 
         // Hand off to worker — octree build + serialize happens off-thread.
-        // We copy the particle data because the worker needs its own buffer.
-        const workerData = this.particlesCPU.buffer.slice(0);
+        // Transfer the buffer directly (0-copy) to the worker, avoiding
+        // allocating and slicing a new buffer every rebuild.
+        const workerData = this.particlesCPU.buffer;
         this.octreeWorker.postMessage(
           { particleData: workerData, maxNodes: this.maxOctreeNodes },
           [workerData]

@@ -44,3 +44,7 @@
 ## 2025-05-18 - [Removed Redundant UI Updates in Hot Render Loop]
 **Learning:** Calling `Math.random()` and triggering global Zustand state updates (`updateStats()`) conditionally on every frame (via `useFrame`) introduces unnecessary overhead in a hot rendering loop, especially when there's already a dedicated interval for it. This stochastically blocks the render thread without providing consistent UX benefits.
 **Action:** Remove intermittent state update calls from hot loops (`useFrame` or `requestAnimationFrame`) if they are already handled by a predictable `setInterval` or `setTimeout` elsewhere in the application architecture (e.g. inside the component that actually displays the stats).
+
+## 2025-05-19 - [Optimized Worker Memory Churn]
+**Learning:** Sending array buffers back and forth between a web worker via `postMessage` using `StructuredSerializeOptions.transfer` removes ownership from the sender. If you don't return the array buffer back from the worker to the main thread, the main thread will be forced to allocate and copy a new buffer every frame (e.g. `const workerData = this.particlesCPU.buffer.slice(0)`).
+**Action:** When delegating tasks to a web worker in a hot loop using zero-copy transfer (`{ transfer: [buffer] }`), ensure the worker transfers the buffer *back* in its result message so the main thread can reuse it for the next invocation.

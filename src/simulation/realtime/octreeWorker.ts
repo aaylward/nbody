@@ -84,5 +84,7 @@ self.onmessage = (e: MessageEvent) => {
   const result = new ArrayBuffer(usedBytes);
   new Uint8Array(result).set(new Uint8Array(scratchBuffer!, 0, usedBytes));
 
-  self.postMessage({ buffer: result, nodeCount }, { transfer: [result] } as StructuredSerializeOptions);
+  // Transfer both the result and the original particle data back to the main thread
+  // to avoid allocating a new buffer on the main thread for the next frame.
+  self.postMessage({ buffer: result, nodeCount, particleData }, { transfer: [result, particleData] } as StructuredSerializeOptions);
 };
