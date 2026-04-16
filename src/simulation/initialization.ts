@@ -28,8 +28,9 @@ export function initializeNBodyParticles(numParticles: number): Float32Array {
   // Scale parameters based on particle count
   // For small counts (<5000), use default scale.
   // For large counts, increase radius to avoid excessive density.
-  // Using sqrt scaling keeps surface density roughly constant.
-  const scale = Math.max(1, Math.sqrt(numParticles / 5000));
+  // Cube-root scaling keeps volume density roughly constant while
+  // keeping orbital timescales short enough for visible dynamics.
+  const scale = Math.max(1, Math.cbrt(numParticles / 5000));
 
   const minRadius = 20 * scale;
   const maxRadius = 80 * scale;
