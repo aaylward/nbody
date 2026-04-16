@@ -22,7 +22,7 @@ export function RealtimeControls() {
   const octreeRebuildInterval = useRealtimeStore((state) => state.octreeRebuildInterval);
   const setOctreeRebuildInterval = useRealtimeStore((state) => state.setOctreeRebuildInterval);
 
-  const [numParticles, setNumParticles] = useState(50000);
+  const [numParticles, setNumParticles] = useState(150000);
   const [targetPhysicsFPS, setTargetPhysicsFPS] = useState(20);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [gpuDevice, setGPUDevice] = useState<GPUDevice | null>(null);
