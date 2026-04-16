@@ -32,7 +32,7 @@ interface SimulationStore {
 }
 
 export const useSimulationStore = create<SimulationStore>((set) => ({
-  mode: 'nbody',
+  mode: 'nbody-realtime',
   setMode: (mode) => set({ mode }),
 
   nbody: {

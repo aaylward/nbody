@@ -7,19 +7,19 @@ export function TopBar() {
 
   return (
     <div className="top-bar">
-      <div className="title">HPC Simulation Viewer</div>
+      <div className="title">N-Body Simulation Viewer</div>
       <div className="mode-selector">
-        <button
-          className={`mode-btn ${mode === 'nbody' ? 'active' : ''}`}
-          onClick={() => setMode('nbody')}
-        >
-          N-Body (Precomputed)
-        </button>
         <button
           className={`mode-btn ${mode === 'nbody-realtime' ? 'active' : ''}`}
           onClick={() => setMode('nbody-realtime')}
         >
-          N-Body (Real-Time)
+          Real-Time
+        </button>
+        <button
+          className={`mode-btn ${mode === 'nbody' ? 'active' : ''}`}
+          onClick={() => setMode('nbody')}
+        >
+          Precomputed
         </button>
       </div>
     </div>
