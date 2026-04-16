@@ -3,11 +3,7 @@
  * Phase 3: Hybrid approach - CPU builds octree, GPU traverses for forces
  */
 
-import {
-  createParticleArray,
-  setParticle,
-  removeCenterOfMassVelocity,
-} from '../particleData';
+import { initializeNBodyParticles } from '../initialization';
 import { Octree, OctreeNode } from '../barnesHut/octree';
 import { packParticlesForGPU, packVelocitiesForGPU, unpackParticlesFromGPU } from './barnesHutPacking';
 import { PerformanceMonitor } from './performanceMonitor';
@@ -86,8 +82,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     this.octreeRebuildInterval = options.octreeRebuildInterval ?? 4;
 
     // Initialize CPU particle array for octree building
-    this.particlesCPU = createParticleArray(this.numParticles);
-    this.initializeParticles();
+    this.particlesCPU = initializeNBodyParticles(this.numParticles);
 
     // Initialize performance monitor
     this.monitor = new PerformanceMonitor();
@@ -172,34 +167,6 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // Create compute pipelines
     this.forcesPipeline = this.createForcesPipeline();
     this.integratePipeline = this.createIntegratePipeline();
-  }
-
-  private initializeParticles(): void {
-    // Central massive object
-    setParticle(this.particlesCPU, 0, {
-      x: 0, y: 0, z: 0,
-      vx: 0, vy: 0, vz: 0,
-      mass: 5000,
-    });
-
-    // Orbiting particles
-    for (let i = 1; i < this.numParticles; i++) {
-      const r = 20 + Math.random() * 60;
-      const theta = Math.random() * Math.PI * 2;
-      const z = (Math.random() - 0.5) * 5;
-
-      const x = r * Math.cos(theta);
-      const y = r * Math.sin(theta);
-
-      const v = Math.sqrt(5000 / r);
-      const vx = -v * Math.sin(theta) + (Math.random() - 0.5) * 0.5;
-      const vy = v * Math.cos(theta) + (Math.random() - 0.5) * 0.5;
-      const vz = (Math.random() - 0.5) * 0.2;
-
-      setParticle(this.particlesCPU, i, { x, y, z, vx, vy, vz, mass: 1 });
-    }
-
-    removeCenterOfMassVelocity(this.particlesCPU);
   }
 
   private uploadParticlesToGPU(): void {

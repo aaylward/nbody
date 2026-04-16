@@ -12,7 +12,7 @@ export function PerformanceStats() {
   const stats = useRealtimeStore((state) => state.stats);
   const physicsFrameCount = useRealtimeStore((state) => state.physicsFrameCount);
   const updateStats = useRealtimeStore((state) => state.updateStats);
-  const [visible, setVisible] = useState(true);
+  const [visible, setVisible] = useState(false);
 
   // Update stats periodically
   useEffect(() => {

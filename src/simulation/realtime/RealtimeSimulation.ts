@@ -4,9 +4,6 @@
  */
 
 import {
-  createParticleArray,
-  setParticle,
-  removeCenterOfMassVelocity,
   FLOATS_PER_PARTICLE,
   OFFSET_X,
   OFFSET_Y,
@@ -16,6 +13,7 @@ import {
   OFFSET_VZ,
   OFFSET_MASS,
 } from '../particleData';
+import { initializeNBodyParticles } from '../initialization';
 import { PerformanceMonitor } from './performanceMonitor';
 
 export interface RealtimeSimulationOptions {
@@ -80,51 +78,14 @@ export class RealtimeNBodySimulation {
     this.deltaT = options.deltaT ?? 0.01;
     this.targetPhysicsFPS = options.targetPhysicsFPS ?? 20;
 
-    // Create particle array for initialization only
-    this.initialParticles = createParticleArray(this.numParticles);
-
     // Initialize performance monitor
     this.monitor = new PerformanceMonitor();
 
-    // Initialize particles
-    this.initializeParticles();
+    // Initialize particles using shared logic (scales radius with N)
+    this.initialParticles = initializeNBodyParticles(this.numParticles);
 
     // Set up GPU resources
     this.setupGPU();
-  }
-
-  private initializeParticles(): void {
-    // Central massive object
-    setParticle(this.initialParticles, 0, {
-      x: 0,
-      y: 0,
-      z: 0,
-      vx: 0,
-      vy: 0,
-      vz: 0,
-      mass: 5000,
-    });
-
-    // Orbiting particles
-    for (let i = 1; i < this.numParticles; i++) {
-      const r = 20 + Math.random() * 60;
-      const theta = Math.random() * Math.PI * 2;
-      const z = (Math.random() - 0.5) * 5;
-
-      const x = r * Math.cos(theta);
-      const y = r * Math.sin(theta);
-
-      // Circular orbit velocity: v = sqrt(GM/r)
-      const v = Math.sqrt(5000 / r);
-      const vx = -v * Math.sin(theta) + (Math.random() - 0.5) * 0.5;
-      const vy = v * Math.cos(theta) + (Math.random() - 0.5) * 0.5;
-      const vz = (Math.random() - 0.5) * 0.2;
-
-      setParticle(this.initialParticles, i, { x, y, z, vx, vy, vz, mass: 1 });
-    }
-
-    // Remove net momentum
-    removeCenterOfMassVelocity(this.initialParticles);
   }
 
   private setupGPU(): void {

@@ -28,8 +28,9 @@ export function initializeNBodyParticles(numParticles: number): Float32Array {
   // Scale parameters based on particle count
   // For small counts (<5000), use default scale.
   // For large counts, increase radius to avoid excessive density.
-  // Using sqrt scaling keeps surface density roughly constant.
-  const scale = Math.max(1, Math.sqrt(numParticles / 5000));
+  // Cube-root scaling keeps volume density roughly constant while
+  // keeping orbital timescales short enough for visible dynamics.
+  const scale = Math.max(1, Math.cbrt(numParticles / 5000));
 
   const minRadius = 20 * scale;
   const maxRadius = 80 * scale;
@@ -58,7 +59,7 @@ export function initializeNBodyParticles(numParticles: number): Float32Array {
 
     // Circular orbit velocity: v = sqrt(GM/r)
     // We use M_enclosed to account for the mass of the cloud itself
-    const v = Math.sqrt(G * M_enclosed / r);
+    const v = 1.15 * Math.sqrt(G * M_enclosed / r);
 
     // Tangential velocity with some random noise
     const vx = -v * Math.sin(theta) + (Math.random() - 0.5) * 0.5;
