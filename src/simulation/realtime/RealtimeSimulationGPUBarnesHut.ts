@@ -11,6 +11,7 @@ import {
 import { Octree, OctreeNode } from '../barnesHut/octree';
 import { packParticlesForGPU, packVelocitiesForGPU, unpackParticlesFromGPU } from './barnesHutPacking';
 import { PerformanceMonitor } from './performanceMonitor';
+import OctreeWorker from './octreeWorker?worker';
 
 export interface RealtimeSimulationGPUBarnesHutOptions {
   device: GPUDevice;
@@ -18,6 +19,7 @@ export interface RealtimeSimulationGPUBarnesHutOptions {
   deltaT?: number;
   targetPhysicsFPS?: number;
   theta?: number;
+  octreeRebuildInterval?: number;
 }
 
 // Octree node format for GPU (flatten for buffer)
@@ -55,8 +57,17 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   // CPU octree
   private particlesCPU: Float32Array;
   private theta: number;
+  private octreeRebuildInterval: number;
+  private rebuildPhase: 'idle' | 'downloading' | 'building' = 'idle';
+  private downloadPromise: Promise<void> | null = null;
+  private pendingOctreeResult: { buffer: ArrayBuffer; nodeCount: number } | null = null;
+  private framesSinceRebuild = 0;
   public targetPhysicsFPS: number;
   public monitor: PerformanceMonitor;
+
+  // Web Worker for off-thread octree construction
+  private octreeWorker: Worker;
+  private maxOctreeNodes: number;
 
   // Reusable scratch storage for octree serialization (avoids per-frame allocation).
   // The backing ArrayBuffer is sized once to the worst-case node count and then
@@ -72,6 +83,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     this.deltaT = options.deltaT ?? 0.01;
     this.targetPhysicsFPS = options.targetPhysicsFPS ?? 20;
     this.theta = options.theta ?? 0.8;
+    this.octreeRebuildInterval = options.octreeRebuildInterval ?? 4;
 
     // Initialize CPU particle array for octree building
     this.particlesCPU = createParticleArray(this.numParticles);
@@ -89,8 +101,14 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     const particleBufferSize = this.numParticles * 4 * 4; // vec3f pos + f32 mass = 16 bytes
     const velocityBufferSize = this.numParticles * 4 * 4; // vec3f stride = 16 bytes
     const forcesBufferSize = this.numParticles * 4 * 4;   // vec3f stride = 16 bytes
-    const maxOctreeNodes = this.numParticles * 8; // Worst case: many internal nodes
-    const octreeBufferSize = maxOctreeNodes * BYTES_PER_NODE;
+    this.maxOctreeNodes = this.numParticles * 8; // Worst case: many internal nodes
+    const octreeBufferSize = this.maxOctreeNodes * BYTES_PER_NODE;
+
+    // Spawn worker for off-thread octree construction
+    this.octreeWorker = new OctreeWorker();
+    this.octreeWorker.onmessage = (e: MessageEvent) => {
+      this.pendingOctreeResult = e.data as { buffer: ArrayBuffer; nodeCount: number };
+    };
 
     this.particleBuffer = this.device.createBuffer({
       size: particleBufferSize,
@@ -123,7 +141,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     this.octreeScratch = new ArrayBuffer(octreeBufferSize);
     this.octreeFloatView = new Float32Array(this.octreeScratch);
     this.octreeIntView = new Uint32Array(this.octreeScratch);
-    this.bfsNodeQueue = new Array(maxOctreeNodes).fill(null);
+    this.bfsNodeQueue = new Array(this.maxOctreeNodes).fill(null);
 
     this.forcesUniformsBuffer = this.device.createBuffer({
       size: 16, // numParticles (u32), theta, G, softening
@@ -461,34 +479,20 @@ export class RealtimeNBodySimulationGPUBarnesHut {
 
   private async physicsLoop(): Promise<void> {
     let frameCount = 0;
+
+    // Build the initial octree from CPU-side particle data (already matches
+    // GPU state from the constructor) so the first frame has valid forces.
+    this.uploadOctree(new Octree(this.particlesCPU));
+
     while (this.running) {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       const startTime = performance.now();
 
-      // 1. Download particles from GPU to CPU for octree building
-      const downloadStart = performance.now();
-      await this.downloadParticlesFromGPU();
-      const downloadTime = performance.now() - downloadStart;
+      // --- Fast path: always runs first so the render buffer updates ---
+      // --- promptly even if a rebuild blocks the thread afterward.    ---
 
-      // 2. Build octree on CPU
-      const buildStart = performance.now();
-      const octree = new Octree(this.particlesCPU);
-      const buildTime = performance.now() - buildStart;
-
-      // 3. Serialize and upload octree to GPU
-      const serializeStart = performance.now();
-      const { view: octreeView, nodeCount } = this.serializeOctree(octree);
-      this.device.queue.writeBuffer(
-        this.octreeBuffer,
-        0,
-        octreeView.buffer,
-        octreeView.byteOffset,
-        octreeView.byteLength
-      );
-      const serializeTime = performance.now() - serializeStart;
-
-      // 4. Update forces uniforms (theta may change at runtime via setTheta).
+      // Update forces uniforms (theta may change at runtime via setTheta).
       // numParticles must be written as u32 (not f32) because the shader
       // declares it as u32 — the raw bits are reinterpreted, not converted.
       const forcesUniformsBuf = new ArrayBuffer(16);
@@ -499,7 +503,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       forcesUniformsF32[3] = 2.0; // softening
       this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniformsBuf);
 
-      // 5. Create bind groups (one-time).
+      // Create bind groups (one-time).
       if (!this.forcesBindGroup) {
         this.forcesBindGroup = this.device.createBindGroup({
           layout: this.forcesPipeline.getBindGroupLayout(0),
@@ -524,7 +528,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
         });
       }
 
-      // 6. Run force computation on GPU
+      // GPU forces + integrate + render copy
       const gpuStart = performance.now();
       const commandEncoder = this.device.createCommandEncoder();
 
@@ -535,14 +539,12 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       forcesPass.dispatchWorkgroups(workgroupCount);
       forcesPass.end();
 
-      // 7. Run integration on GPU
       const integratePass = commandEncoder.beginComputePass();
       integratePass.setPipeline(this.integratePipeline);
       integratePass.setBindGroup(0, this.integrateBindGroup);
       integratePass.dispatchWorkgroups(workgroupCount);
       integratePass.end();
 
-      // 8. Copy to render buffer
       commandEncoder.copyBufferToBuffer(
         this.particleBuffer,
         0,
@@ -555,11 +557,60 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       await this.device.queue.onSubmittedWorkDone();
       const gpuTime = performance.now() - gpuStart;
 
+      // --- Octree rebuild pipeline (fully non-blocking) ---
+      // Three phases, each on a separate frame, so no phase blocks the
+      // main thread long enough to stall requestAnimationFrame:
+      //   Frame N:   kick off GPU→CPU copy + async mapAsync
+      //   Frame N+1: await map (fast — DMA already finished), read data,
+      //              send to Web Worker for octree build
+      //   Frame N+2+: worker posts back serialized buffer, upload to GPU
+      //
+      // The worker result may arrive mid-frame via onmessage; we check
+      // for it at the top of the pipeline section each frame.
+
+      if (this.pendingOctreeResult) {
+        this.device.queue.writeBuffer(
+          this.octreeBuffer, 0, this.pendingOctreeResult.buffer
+        );
+        if (frameCount <= 2) {
+          console.log(`  Octree uploaded (${this.pendingOctreeResult.nodeCount} nodes)`);
+        }
+        this.pendingOctreeResult = null;
+        this.rebuildPhase = 'idle';
+        this.framesSinceRebuild = 0;
+      }
+
+      if (this.rebuildPhase === 'downloading') {
+        await this.downloadPromise!;
+        const gpuData = new Float32Array(this.stagingBuffer.getMappedRange());
+        unpackParticlesFromGPU(gpuData, this.particlesCPU, this.numParticles);
+        this.stagingBuffer.unmap();
+
+        // Hand off to worker — octree build + serialize happens off-thread.
+        // We copy the particle data because the worker needs its own buffer.
+        const workerData = this.particlesCPU.buffer.slice(0);
+        this.octreeWorker.postMessage(
+          { particleData: workerData, maxNodes: this.maxOctreeNodes },
+          [workerData]
+        );
+        this.rebuildPhase = 'building';
+      }
+
+      this.framesSinceRebuild++;
+      if (this.rebuildPhase === 'idle' && this.framesSinceRebuild >= this.octreeRebuildInterval) {
+        const dlEncoder = this.device.createCommandEncoder();
+        dlEncoder.copyBufferToBuffer(
+          this.particleBuffer, 0,
+          this.stagingBuffer, 0,
+          this.numParticles * 4 * 4
+        );
+        this.device.queue.submit([dlEncoder.finish()]);
+        this.downloadPromise = this.stagingBuffer.mapAsync(GPUMapMode.READ);
+        this.rebuildPhase = 'downloading';
+      }
+
       if (frameCount === 0) {
-        console.log(`GPU Barnes-Hut profile:`);
-        console.log(`  Download: ${downloadTime.toFixed(1)}ms`);
-        console.log(`  Build octree: ${buildTime.toFixed(1)}ms (${nodeCount} nodes)`);
-        console.log(`  Serialize: ${serializeTime.toFixed(1)}ms`);
+        console.log(`GPU Barnes-Hut profile (rebuild every ${this.octreeRebuildInterval} frames):`);
         console.log(`  GPU compute: ${gpuTime.toFixed(1)}ms`);
         console.log(`  Total: ${(performance.now() - startTime).toFixed(1)}ms`);
       }
@@ -580,25 +631,12 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     }
   }
 
-  private async downloadParticlesFromGPU(): Promise<void> {
-    // Read back particles from GPU to CPU for octree building
-    const commandEncoder = this.device.createCommandEncoder();
-    commandEncoder.copyBufferToBuffer(
-      this.particleBuffer,
-      0,
-      this.stagingBuffer,
-      0,
-      this.numParticles * 4 * 4
+  private uploadOctree(octree: Octree): void {
+    const { view } = this.serializeOctree(octree);
+    this.device.queue.writeBuffer(
+      this.octreeBuffer, 0,
+      view.buffer, view.byteOffset, view.byteLength
     );
-    this.device.queue.submit([commandEncoder.finish()]);
-
-    // Wait for copy to complete and map
-    await this.stagingBuffer.mapAsync(GPUMapMode.READ);
-    const gpuData = new Float32Array(this.stagingBuffer.getMappedRange());
-
-    unpackParticlesFromGPU(gpuData, this.particlesCPU, this.numParticles);
-
-    this.stagingBuffer.unmap();
   }
 
   getDevice(): GPUDevice {
@@ -629,6 +667,14 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     return this.theta;
   }
 
+  setOctreeRebuildInterval(interval: number): void {
+    this.octreeRebuildInterval = Math.max(1, Math.min(16, interval));
+  }
+
+  getOctreeRebuildInterval(): number {
+    return this.octreeRebuildInterval;
+  }
+
   getPhysicsProgress(): number {
     // Calculate progress to next physics frame (0.0 to 1.0)
     const frameTime = 1000 / this.targetPhysicsFPS;
@@ -638,6 +684,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
 
   destroy(): void {
     this.running = false;
+    this.octreeWorker.terminate();
     this.particleBuffer.destroy();
     this.renderPositionBuffer.destroy();
     this.velocityBuffer.destroy();

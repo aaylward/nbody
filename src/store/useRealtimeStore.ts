@@ -23,6 +23,7 @@ export interface RealtimeState {
   stats: PerformanceStats;
   error: string | null;
   theta: number; // Barnes-Hut opening angle
+  octreeRebuildInterval: number; // Rebuild octree every N physics frames
 }
 
 export interface RealtimeActions {
@@ -32,6 +33,7 @@ export interface RealtimeActions {
   setTargetFPS: (fps: number) => void;
   setBackend: (backend: SimulationBackend) => void;
   setTheta: (theta: number) => void;
+  setOctreeRebuildInterval: (interval: number) => void;
   updateStats: () => void;
 }
 
@@ -44,6 +46,7 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
   isRunning: false,
   physicsFrameCount: 0,
   theta: 0.8, // Default Barnes-Hut opening angle (higher = faster, lower = more accurate)
+  octreeRebuildInterval: 4, // Rebuild octree every 4 physics frames
   stats: {
     physicsFPS: 0,
     renderFPS: 0,
@@ -144,6 +147,14 @@ export const useRealtimeStore = create<RealtimeStore>((set, get) => ({
     set({ theta });
     if (simulation && 'setTheta' in simulation) {
       simulation.setTheta(theta);
+    }
+  },
+
+  setOctreeRebuildInterval: (interval: number) => {
+    const { simulation } = get();
+    set({ octreeRebuildInterval: interval });
+    if (simulation && 'setOctreeRebuildInterval' in simulation) {
+      simulation.setOctreeRebuildInterval(interval);
     }
   },
 
