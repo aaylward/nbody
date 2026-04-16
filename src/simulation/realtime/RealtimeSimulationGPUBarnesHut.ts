@@ -53,15 +53,10 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   // CPU octree
   private particlesCPU: Float32Array;
   private theta: number;
-
-  // Reusable uniforms buffer for forces compute
-  private forcesUniformsBuf!: ArrayBuffer;
-  private forcesUniformsUint32!: Uint32Array;
-  private forcesUniformsFloat32!: Float32Array;
   private octreeRebuildInterval: number;
   private rebuildPhase: 'idle' | 'downloading' | 'building' = 'idle';
   private downloadPromise: Promise<void> | null = null;
-  private pendingOctreeResult: { buffer: ArrayBuffer; nodeCount: number } | null = null;
+  private pendingOctreeResult: { buffer: ArrayBuffer; nodeCount: number; particleData: ArrayBuffer } | null = null;
   private framesSinceRebuild = 0;
   public targetPhysicsFPS: number;
   public monitor: PerformanceMonitor;
@@ -107,7 +102,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // Spawn worker for off-thread octree construction
     this.octreeWorker = new OctreeWorker();
     this.octreeWorker.onmessage = (e: MessageEvent) => {
-      this.pendingOctreeResult = e.data as { buffer: ArrayBuffer; nodeCount: number };
+      this.pendingOctreeResult = e.data as { buffer: ArrayBuffer; nodeCount: number; particleData: ArrayBuffer };
     };
 
     this.particleBuffer = this.device.createBuffer({
@@ -456,14 +451,6 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // GPU state from the constructor) so the first frame has valid forces.
     this.uploadOctree(new Octree(this.particlesCPU));
 
-    // Optimization: Allocate uniform buffer once outside the loop to avoid per-frame allocations.
-    // In high-frequency physics loops (e.g. running at 60 FPS), creating new ArrayBuffers
-    // and TypedArray views on every frame puts unnecessary pressure on the garbage collector
-    // and can lead to micro-stutters. Reusing pre-allocated views significantly reduces allocations.
-    this.forcesUniformsBuf = new ArrayBuffer(16);
-    this.forcesUniformsUint32 = new Uint32Array(this.forcesUniformsBuf, 0, 1);
-    this.forcesUniformsFloat32 = new Float32Array(this.forcesUniformsBuf);
-
     while (this.running) {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -475,11 +462,13 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       // Update forces uniforms (theta may change at runtime via setTheta).
       // numParticles must be written as u32 (not f32) because the shader
       // declares it as u32 — the raw bits are reinterpreted, not converted.
-      this.forcesUniformsUint32[0] = this.numParticles;
-      this.forcesUniformsFloat32[1] = this.theta;
-      this.forcesUniformsFloat32[2] = 1.0; // G
-      this.forcesUniformsFloat32[3] = 2.0; // softening
-      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, this.forcesUniformsBuf);
+      const forcesUniformsBuf = new ArrayBuffer(16);
+      new Uint32Array(forcesUniformsBuf, 0, 1)[0] = this.numParticles;
+      const forcesUniformsF32 = new Float32Array(forcesUniformsBuf);
+      forcesUniformsF32[1] = this.theta;
+      forcesUniformsF32[2] = 1.0; // G
+      forcesUniformsF32[3] = 2.0; // softening
+      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniformsBuf);
 
       // Create bind groups (one-time).
       if (!this.forcesBindGroup) {
@@ -553,6 +542,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
         if (frameCount <= 2) {
           console.log(`  Octree uploaded (${this.pendingOctreeResult.nodeCount} nodes)`);
         }
+
+        // Restore ownership of the CPU particle buffer from the worker
+        // so we can reuse it for the next download phase without reallocating.
+        this.particlesCPU = new Float32Array(this.pendingOctreeResult.particleData);
+
         this.pendingOctreeResult = null;
         this.rebuildPhase = 'idle';
         this.framesSinceRebuild = 0;
@@ -565,8 +559,9 @@ export class RealtimeNBodySimulationGPUBarnesHut {
         this.stagingBuffer.unmap();
 
         // Hand off to worker — octree build + serialize happens off-thread.
-        // We copy the particle data because the worker needs its own buffer.
-        const workerData = this.particlesCPU.buffer.slice(0);
+        // Transfer the buffer directly (0-copy) to the worker, avoiding
+        // allocating and slicing a new buffer every rebuild.
+        const workerData = this.particlesCPU.buffer;
         this.octreeWorker.postMessage(
           { particleData: workerData, maxNodes: this.maxOctreeNodes },
           [workerData]
