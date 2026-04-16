@@ -53,6 +53,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   // CPU octree
   private particlesCPU: Float32Array;
   private theta: number;
+
+  // Reusable uniforms buffer for forces compute
+  private forcesUniformsBuf!: ArrayBuffer;
+  private forcesUniformsUint32!: Uint32Array;
+  private forcesUniformsFloat32!: Float32Array;
   private octreeRebuildInterval: number;
   private rebuildPhase: 'idle' | 'downloading' | 'building' = 'idle';
   private downloadPromise: Promise<void> | null = null;
@@ -451,6 +456,14 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // GPU state from the constructor) so the first frame has valid forces.
     this.uploadOctree(new Octree(this.particlesCPU));
 
+    // Optimization: Allocate uniform buffer once outside the loop to avoid per-frame allocations.
+    // In high-frequency physics loops (e.g. running at 60 FPS), creating new ArrayBuffers
+    // and TypedArray views on every frame puts unnecessary pressure on the garbage collector
+    // and can lead to micro-stutters. Reusing pre-allocated views significantly reduces allocations.
+    this.forcesUniformsBuf = new ArrayBuffer(16);
+    this.forcesUniformsUint32 = new Uint32Array(this.forcesUniformsBuf, 0, 1);
+    this.forcesUniformsFloat32 = new Float32Array(this.forcesUniformsBuf);
+
     while (this.running) {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -462,13 +475,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       // Update forces uniforms (theta may change at runtime via setTheta).
       // numParticles must be written as u32 (not f32) because the shader
       // declares it as u32 — the raw bits are reinterpreted, not converted.
-      const forcesUniformsBuf = new ArrayBuffer(16);
-      new Uint32Array(forcesUniformsBuf, 0, 1)[0] = this.numParticles;
-      const forcesUniformsF32 = new Float32Array(forcesUniformsBuf);
-      forcesUniformsF32[1] = this.theta;
-      forcesUniformsF32[2] = 1.0; // G
-      forcesUniformsF32[3] = 2.0; // softening
-      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniformsBuf);
+      this.forcesUniformsUint32[0] = this.numParticles;
+      this.forcesUniformsFloat32[1] = this.theta;
+      this.forcesUniformsFloat32[2] = 1.0; // G
+      this.forcesUniformsFloat32[3] = 2.0; // softening
+      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, this.forcesUniformsBuf);
 
       // Create bind groups (one-time).
       if (!this.forcesBindGroup) {

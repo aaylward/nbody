@@ -44,3 +44,7 @@
 ## 2025-05-18 - [Removed Redundant UI Updates in Hot Render Loop]
 **Learning:** Calling `Math.random()` and triggering global Zustand state updates (`updateStats()`) conditionally on every frame (via `useFrame`) introduces unnecessary overhead in a hot rendering loop, especially when there's already a dedicated interval for it. This stochastically blocks the render thread without providing consistent UX benefits.
 **Action:** Remove intermittent state update calls from hot loops (`useFrame` or `requestAnimationFrame`) if they are already handled by a predictable `setInterval` or `setTimeout` elsewhere in the application architecture (e.g. inside the component that actually displays the stats).
+
+## 2024-04-16 - Hoisting Uniform Buffer Allocation in High-Frequency Loops
+**Learning:** Re-allocating `ArrayBuffer` and corresponding TypedArray views (e.g. `Float32Array`) on every iteration inside a high-frequency `requestAnimationFrame` or `setTimeout` loop causes a significant amount of memory churn. In the WebGPU context, writing uniforms using small ArrayBuffers per frame adds unnecessary pressure to the JS garbage collector which can lead to micro-stutters.
+**Action:** Always hoist small fixed-size buffer allocations outside of physics or render loops. Update the `GPUBuffer` using `device.queue.writeBuffer(..., 0, reusableArrayBuffer)` instead of passing newly instantiated buffers on every iteration.
