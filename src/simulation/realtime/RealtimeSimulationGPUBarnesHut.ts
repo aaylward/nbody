@@ -11,6 +11,7 @@ import {
 import { Octree, OctreeNode } from '../barnesHut/octree';
 import { packParticlesForGPU, packVelocitiesForGPU, unpackParticlesFromGPU } from './barnesHutPacking';
 import { PerformanceMonitor } from './performanceMonitor';
+import OctreeWorker from './octreeWorker?worker';
 
 export interface RealtimeSimulationGPUBarnesHutOptions {
   device: GPUDevice;
@@ -57,11 +58,16 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   private particlesCPU: Float32Array;
   private theta: number;
   private octreeRebuildInterval: number;
-  private rebuildPhase: 'idle' | 'downloading' = 'idle';
+  private rebuildPhase: 'idle' | 'downloading' | 'building' = 'idle';
   private downloadPromise: Promise<void> | null = null;
+  private pendingOctreeResult: { buffer: ArrayBuffer; nodeCount: number } | null = null;
   private framesSinceRebuild = 0;
   public targetPhysicsFPS: number;
   public monitor: PerformanceMonitor;
+
+  // Web Worker for off-thread octree construction
+  private octreeWorker: Worker;
+  private maxOctreeNodes: number;
 
   // Reusable scratch storage for octree serialization (avoids per-frame allocation).
   // The backing ArrayBuffer is sized once to the worst-case node count and then
@@ -95,8 +101,14 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     const particleBufferSize = this.numParticles * 4 * 4; // vec3f pos + f32 mass = 16 bytes
     const velocityBufferSize = this.numParticles * 4 * 4; // vec3f stride = 16 bytes
     const forcesBufferSize = this.numParticles * 4 * 4;   // vec3f stride = 16 bytes
-    const maxOctreeNodes = this.numParticles * 8; // Worst case: many internal nodes
-    const octreeBufferSize = maxOctreeNodes * BYTES_PER_NODE;
+    this.maxOctreeNodes = this.numParticles * 8; // Worst case: many internal nodes
+    const octreeBufferSize = this.maxOctreeNodes * BYTES_PER_NODE;
+
+    // Spawn worker for off-thread octree construction
+    this.octreeWorker = new OctreeWorker();
+    this.octreeWorker.onmessage = (e: MessageEvent) => {
+      this.pendingOctreeResult = e.data as { buffer: ArrayBuffer; nodeCount: number };
+    };
 
     this.particleBuffer = this.device.createBuffer({
       size: particleBufferSize,
@@ -129,7 +141,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     this.octreeScratch = new ArrayBuffer(octreeBufferSize);
     this.octreeFloatView = new Float32Array(this.octreeScratch);
     this.octreeIntView = new Uint32Array(this.octreeScratch);
-    this.bfsNodeQueue = new Array(maxOctreeNodes).fill(null);
+    this.bfsNodeQueue = new Array(this.maxOctreeNodes).fill(null);
 
     this.forcesUniformsBuffer = this.device.createBuffer({
       size: 16, // numParticles (u32), theta, G, softening
@@ -545,34 +557,47 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       await this.device.queue.onSubmittedWorkDone();
       const gpuTime = performance.now() - gpuStart;
 
-      // --- Octree rebuild pipeline (after render buffer is updated) ---
-      // Pipelined across two frames to avoid a single large spike:
-      //   Frame N:   kick off GPU→CPU copy, start async mapAsync
-      //   Frame N+1: await map, read data, build octree, upload
-      // The GPU→CPU DMA transfer overlaps with frame N+1's GPU compute.
+      // --- Octree rebuild pipeline (fully non-blocking) ---
+      // Three phases, each on a separate frame, so no phase blocks the
+      // main thread long enough to stall requestAnimationFrame:
+      //   Frame N:   kick off GPU→CPU copy + async mapAsync
+      //   Frame N+1: await map (fast — DMA already finished), read data,
+      //              send to Web Worker for octree build
+      //   Frame N+2+: worker posts back serialized buffer, upload to GPU
+      //
+      // The worker result may arrive mid-frame via onmessage; we check
+      // for it at the top of the pipeline section each frame.
+
+      if (this.pendingOctreeResult) {
+        this.device.queue.writeBuffer(
+          this.octreeBuffer, 0, this.pendingOctreeResult.buffer
+        );
+        if (frameCount <= 2) {
+          console.log(`  Octree uploaded (${this.pendingOctreeResult.nodeCount} nodes)`);
+        }
+        this.pendingOctreeResult = null;
+        this.rebuildPhase = 'idle';
+        this.framesSinceRebuild = 0;
+      }
 
       if (this.rebuildPhase === 'downloading') {
-        const rebuildStart = performance.now();
         await this.downloadPromise!;
         const gpuData = new Float32Array(this.stagingBuffer.getMappedRange());
         unpackParticlesFromGPU(gpuData, this.particlesCPU, this.numParticles);
         this.stagingBuffer.unmap();
 
-        const octree = new Octree(this.particlesCPU);
-        this.uploadOctree(octree);
-
-        this.rebuildPhase = 'idle';
-        this.framesSinceRebuild = 0;
-
-        if (frameCount <= 2) {
-          console.log(`  Rebuild: ${(performance.now() - rebuildStart).toFixed(1)}ms`);
-        }
+        // Hand off to worker — octree build + serialize happens off-thread.
+        // We copy the particle data because the worker needs its own buffer.
+        const workerData = this.particlesCPU.buffer.slice(0);
+        this.octreeWorker.postMessage(
+          { particleData: workerData, maxNodes: this.maxOctreeNodes },
+          [workerData]
+        );
+        this.rebuildPhase = 'building';
       }
 
       this.framesSinceRebuild++;
       if (this.rebuildPhase === 'idle' && this.framesSinceRebuild >= this.octreeRebuildInterval) {
-        // Kick off the async download — resolves while the next frame's
-        // GPU compute is running, so the DMA cost is mostly hidden.
         const dlEncoder = this.device.createCommandEncoder();
         dlEncoder.copyBufferToBuffer(
           this.particleBuffer, 0,
@@ -659,6 +684,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
 
   destroy(): void {
     this.running = false;
+    this.octreeWorker.terminate();
     this.particleBuffer.destroy();
     this.renderPositionBuffer.destroy();
     this.velocityBuffer.destroy();

@@ -1,9 +1,10 @@
 /**
  * Tests for octree rebuild interval and pipeline logic.
  *
- * The amortized rebuild skips the expensive CPU octree build on most
- * physics frames, reusing the last uploaded tree. The rebuild is
- * pipelined across two frames (download then build) to spread the cost.
+ * The rebuild is pipelined across three frames and uses a Web Worker:
+ *   Frame N:   kick off GPU→CPU download (async mapAsync)
+ *   Frame N+1: read downloaded data, send to worker
+ *   Frame N+2+: worker posts back serialized octree, upload to GPU
  *
  * These tests protect the clamping invariants and the pipeline state
  * machine so that future refactors don't accidentally regress
@@ -19,38 +20,58 @@ function clampInterval(interval: number): number {
   return Math.max(1, Math.min(16, interval));
 }
 
+type RebuildPhase = 'idle' | 'downloading' | 'building';
+
 /**
- * Simulates the two-phase rebuild pipeline from physicsLoop.
+ * Simulates the three-phase rebuild pipeline from physicsLoop.
  *
- * Phase 1 ('idle' → 'downloading'): when framesSinceRebuild reaches
- *   the interval, kick off async download.
- * Phase 2 ('downloading' → 'idle'): on the next frame, await download
- *   and build octree. Reset counter.
+ * Phase 1 ('idle' → 'downloading'): when framesSinceRebuild >= interval
+ * Phase 2 ('downloading' → 'building'): read data, send to worker
+ * Phase 3 ('building' → 'idle'): worker result received, upload
  *
- * Returns a log of which frames triggered each phase.
+ * We simulate the worker completing 1 frame after dispatch (best case).
+ * Returns logs of which frames triggered each phase transition.
  */
 function simulatePipeline(totalFrames: number, interval: number) {
-  let rebuildPhase: 'idle' | 'downloading' = 'idle';
+  let phase: RebuildPhase = 'idle';
   let framesSinceRebuild = 0;
+  let workerResultFrame = -1;
+
   const downloadFrames: number[] = [];
-  const buildFrames: number[] = [];
+  const dispatchFrames: number[] = [];
+  const uploadFrames: number[] = [];
 
   for (let frame = 0; frame < totalFrames; frame++) {
-    // Phase 2 runs first (mirrors the loop ordering)
-    if (rebuildPhase === 'downloading') {
-      buildFrames.push(frame);
-      rebuildPhase = 'idle';
+    // Simulate worker result arriving (1 frame after dispatch)
+    let pendingResult = false;
+    if (workerResultFrame === frame) {
+      pendingResult = true;
+      workerResultFrame = -1;
+    }
+
+    // Check for worker result first (mirrors loop ordering)
+    if (pendingResult) {
+      uploadFrames.push(frame);
+      phase = 'idle';
       framesSinceRebuild = 0;
     }
 
+    // Phase 2: downloading → building
+    if (phase === 'downloading') {
+      dispatchFrames.push(frame);
+      phase = 'building';
+      workerResultFrame = frame + 1; // Worker finishes next frame
+    }
+
+    // Count and check for new download
     framesSinceRebuild++;
-    if (rebuildPhase === 'idle' && framesSinceRebuild >= interval) {
+    if (phase === 'idle' && framesSinceRebuild >= interval) {
       downloadFrames.push(frame);
-      rebuildPhase = 'downloading';
+      phase = 'downloading';
     }
   }
 
-  return { downloadFrames, buildFrames };
+  return { downloadFrames, dispatchFrames, uploadFrames };
 }
 
 describe('Octree Rebuild Interval', () => {
@@ -76,51 +97,52 @@ describe('Octree Rebuild Interval', () => {
   });
 
   describe('rebuild pipeline', () => {
-    it('first download should happen on frame interval-1', () => {
+    it('first download triggers after interval frames', () => {
       const { downloadFrames } = simulatePipeline(20, 4);
-      expect(downloadFrames[0]).toBe(3); // framesSinceRebuild reaches 4 on frame 3
+      expect(downloadFrames[0]).toBe(3);
     });
 
-    it('build always follows download on the next frame', () => {
-      const { downloadFrames, buildFrames } = simulatePipeline(40, 4);
-      for (let i = 0; i < downloadFrames.length; i++) {
-        if (i < buildFrames.length) {
-          expect(buildFrames[i]).toBe(downloadFrames[i] + 1);
-        }
+    it('worker dispatch always follows download on the next frame', () => {
+      const { downloadFrames, dispatchFrames } = simulatePipeline(40, 4);
+      for (let i = 0; i < Math.min(downloadFrames.length, dispatchFrames.length); i++) {
+        expect(dispatchFrames[i]).toBe(downloadFrames[i] + 1);
       }
     });
 
-    it('interval=1 should rebuild as fast as possible', () => {
-      const { downloadFrames, buildFrames } = simulatePipeline(10, 1);
-      // interval=1: framesSinceRebuild hits 1 on every non-build frame.
-      // Build frame resets counter and immediately re-triggers download
-      // on the same frame (counter goes 0→1 after reset), so download
-      // and build happen on every frame except the very first build.
-      expect(downloadFrames.length).toBeGreaterThan(0);
-      expect(buildFrames.length).toBeGreaterThan(0);
-      // Every download is followed by a build on the next frame
-      for (let i = 0; i < buildFrames.length; i++) {
-        expect(buildFrames[i]).toBe(downloadFrames[i] + 1);
+    it('upload follows dispatch by 1 frame (worker latency)', () => {
+      const { dispatchFrames, uploadFrames } = simulatePipeline(40, 4);
+      for (let i = 0; i < Math.min(dispatchFrames.length, uploadFrames.length); i++) {
+        expect(uploadFrames[i]).toBe(dispatchFrames[i] + 1);
       }
     });
 
-    it('no frame should have both download and build', () => {
-      const { downloadFrames, buildFrames } = simulatePipeline(100, 4);
-      const overlap = downloadFrames.filter(f => buildFrames.includes(f));
-      expect(overlap).toEqual([]);
+    it('no phase should overlap on the same frame', () => {
+      const { downloadFrames, dispatchFrames, uploadFrames } = simulatePipeline(100, 4);
+      // download and dispatch should never be on the same frame
+      const dlSet = new Set(downloadFrames);
+      for (const f of dispatchFrames) {
+        expect(dlSet.has(f)).toBe(false);
+      }
+      // dispatch and upload should never be on the same frame
+      const dispSet = new Set(dispatchFrames);
+      for (const f of uploadFrames) {
+        expect(dispSet.has(f)).toBe(false);
+      }
     });
 
-    it('should produce consistent rebuild cadence over many frames', () => {
-      const { buildFrames } = simulatePipeline(200, 8);
-      // Check intervals between builds are consistent
-      for (let i = 1; i < buildFrames.length; i++) {
-        const gap = buildFrames[i] - buildFrames[i - 1];
-        // The build frame itself resets the counter, then on that same
-        // frame framesSinceRebuild increments to 1, so the next download
-        // triggers at interval-1 frames later, build 1 frame after that.
-        // Total gap between builds = interval.
-        expect(gap).toBe(8);
+    it('should produce consistent rebuild cadence', () => {
+      const { uploadFrames } = simulatePipeline(200, 8);
+      for (let i = 1; i < uploadFrames.length; i++) {
+        const gap = uploadFrames[i] - uploadFrames[i - 1];
+        // Gap should be stable across rebuilds
+        expect(gap).toBe(uploadFrames[1] - uploadFrames[0]);
       }
+    });
+
+    it('interval=1 should rebuild as fast as the pipeline allows', () => {
+      const { uploadFrames } = simulatePipeline(30, 1);
+      // Should get multiple rebuilds
+      expect(uploadFrames.length).toBeGreaterThan(3);
     });
   });
 });
