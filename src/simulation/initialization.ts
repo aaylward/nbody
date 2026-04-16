@@ -59,7 +59,7 @@ export function initializeNBodyParticles(numParticles: number): Float32Array {
 
     // Circular orbit velocity: v = sqrt(GM/r)
     // We use M_enclosed to account for the mass of the cloud itself
-    const v = Math.sqrt(G * M_enclosed / r);
+    const v = 1.15 * Math.sqrt(G * M_enclosed / r);
 
     // Tangential velocity with some random noise
     const vx = -v * Math.sin(theta) + (Math.random() - 0.5) * 0.5;
