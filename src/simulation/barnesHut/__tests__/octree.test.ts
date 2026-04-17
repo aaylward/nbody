@@ -317,7 +317,7 @@ describe('Octree', () => {
 
   describe('Performance', () => {
     test('should scale better than brute force for large N', () => {
-      const numParticles = 5000;
+      const numParticles = 20000;
       const particles = createParticleArray(numParticles);
 
       for (let i = 0; i < numParticles; i++) {

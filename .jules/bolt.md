@@ -48,3 +48,7 @@
 ## 2025-05-19 - [Optimized Worker Memory Churn]
 **Learning:** Sending array buffers back and forth between a web worker via `postMessage` using `StructuredSerializeOptions.transfer` removes ownership from the sender. If you don't return the array buffer back from the worker to the main thread, the main thread will be forced to allocate and copy a new buffer every frame (e.g. `const workerData = this.particlesCPU.buffer.slice(0)`).
 **Action:** When delegating tasks to a web worker in a hot loop using zero-copy transfer (`{ transfer: [buffer] }`), ensure the worker transfers the buffer *back* in its result message so the main thread can reuse it for the next invocation.
+
+## 2024-04-17 - Fast TypedArray updates and divisions in V8
+**Learning:** In V8 hot loops, doing in-place updates (e.g. `particles[offset] += value`) on TypedArrays is very slow because it triggers a read-modify-store cycle that bypasses fast CPU registers. Also, division is much slower than multiplication; calculating `1 / Math.sqrt(r2)` and multiplying is faster than dividing by `(r2 * Math.sqrt(r2))`.
+**Action:** When updating multiple components of a vector in a TypedArray, load them into local variables, update them, and then assign them back to the TypedArray. When possible, replace division with multiplication by the inverse.
