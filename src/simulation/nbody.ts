@@ -365,31 +365,6 @@ export class NBodyGPU {
   }
 }
 
-export let activeSimulation: NBodyGPU | null = null;
-export function setActiveSimulation(sim: NBodyGPU | null) {
-  activeSimulation = sim;
-}
-
-export async function initRealTimeSimulation(
-  options: NBodySimulationOptions
-): Promise<boolean> {
-  const { numParticles, deltaT, onProgress } = options;
-  const gpuAvailable = gpuDevice || (await initGPU());
-
-  if (!gpuAvailable) {
-    onProgress?.(100, 'WebGPU not available');
-    return false;
-  }
-
-  if (!gpuDevice) throw new Error('GPU device not initialized');
-
-  activeSimulation = new NBodyGPU(gpuDevice, numParticles);
-  await activeSimulation.init(deltaT);
-
-  onProgress?.(100, 'Simulation Ready');
-  return true;
-}
-
 export async function generateNBodyDemo(
   options: NBodySimulationOptions
 ): Promise<Float32Array[]> {
