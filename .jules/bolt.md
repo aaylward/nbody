@@ -48,3 +48,6 @@
 ## 2025-05-19 - [Optimized Worker Memory Churn]
 **Learning:** Sending array buffers back and forth between a web worker via `postMessage` using `StructuredSerializeOptions.transfer` removes ownership from the sender. If you don't return the array buffer back from the worker to the main thread, the main thread will be forced to allocate and copy a new buffer every frame (e.g. `const workerData = this.particlesCPU.buffer.slice(0)`).
 **Action:** When delegating tasks to a web worker in a hot loop using zero-copy transfer (`{ transfer: [buffer] }`), ensure the worker transfers the buffer *back* in its result message so the main thread can reuse it for the next invocation.
+## 2025-05-19 - [Optimized WebGPU Interleaved Readback]
+**Learning:** Using `THREE.InterleavedBuffer` natively maps to the WebGPU memory layout (e.g. `[x, y, z, pad]`), which allows using native `Float32Array.prototype.set()` for O(1) bulk data transfer. A manual JavaScript `for` loop that unpacks data per-frame across thousands of particles is incredibly slow and a major render thread bottleneck.
+**Action:** When mapping compute shader data to geometry, align WebGPU and WebGL memory strides (often using 16-byte vec4 alignment) and use `InterleavedBufferAttribute` to allow zero-parsing `buffer.set(gpuData)` bulk copies.

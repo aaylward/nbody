@@ -40,7 +40,7 @@ export function RealtimeVisualization() {
     const geom = new THREE.BufferGeometry();
 
     // Create position and color arrays
-    const positions = new Float32Array(numParticles * 3);
+    const positions = new Float32Array(numParticles * 4); // Match GPU layout (x,y,z,pad)
     const colors = new Float32Array(numParticles * 3);
 
     // Initialize with basic colors
@@ -50,7 +50,10 @@ export function RealtimeVisualization() {
       colors[i * 3 + 2] = 1.0;
     }
 
-    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const interleavedBuffer = new THREE.InterleavedBuffer(positions, 4);
+    interleavedBuffer.setUsage(THREE.DynamicDrawUsage);
+
+    geom.setAttribute('position', new THREE.InterleavedBufferAttribute(interleavedBuffer, 3, 0));
     geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
     positionArrayRef.current = positions;
@@ -97,14 +100,11 @@ export function RealtimeVisualization() {
           try {
             const gpuData = new Float32Array(stagingBuffer.getMappedRange());
 
-            for (let i = 0; i < numParticles; i++) {
-              positionArrayRef.current![i * 3 + 0] = gpuData[i * 4 + 0];
-              positionArrayRef.current![i * 3 + 1] = gpuData[i * 4 + 1];
-              positionArrayRef.current![i * 3 + 2] = gpuData[i * 4 + 2];
-            }
+            // Fast O(1) memory copy matching GPU alignment
+            positionArrayRef.current!.set(gpuData);
 
             if (geometryRef.current) {
-              const posAttr = geometryRef.current.getAttribute('position') as THREE.BufferAttribute;
+              const posAttr = geometryRef.current.getAttribute('position') as THREE.InterleavedBufferAttribute;
               posAttr.needsUpdate = true;
             }
 
