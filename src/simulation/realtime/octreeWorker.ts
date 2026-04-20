@@ -1,72 +1,25 @@
 /**
- * Web Worker that builds and serializes the Barnes-Hut octree off the
- * main thread. Receives particle positions, returns a GPU-ready buffer.
+ * Web Worker that builds the Barnes-Hut octree off the main thread and
+ * returns a GPU-ready buffer.
+ *
+ * Uses the flat-array builder which writes nodes directly in GPU format —
+ * no intermediate object tree, no separate serialization pass.
  */
 
-import { Octree, OctreeNode } from '../barnesHut/octree';
+import { buildFlatOctree, BYTES_PER_NODE } from '../barnesHut/flatOctree';
 
-const BYTES_PER_NODE = 32; // 5 floats + 3 u32s = 8 × 4 bytes
-
-// Reusable scratch — allocated on first message, reused across rebuilds.
-let scratchBuffer: ArrayBuffer | null = null;
-let floatView: Float32Array;
-let intView: Uint32Array;
-let bfsQueue: (OctreeNode | null)[];
+let nodeScratch: ArrayBuffer | null = null;
+let indexScratch: Int32Array | null = null;
 let scratchMaxNodes = 0;
 
-function ensureScratch(maxNodes: number) {
-  if (maxNodes <= scratchMaxNodes) return;
-  scratchMaxNodes = maxNodes;
-  scratchBuffer = new ArrayBuffer(maxNodes * BYTES_PER_NODE);
-  floatView = new Float32Array(scratchBuffer);
-  intView = new Uint32Array(scratchBuffer);
-  bfsQueue = new Array(maxNodes).fill(null);
-}
-
-function serializeOctree(octree: Octree, maxNodes: number): { usedBytes: number; nodeCount: number } {
-  ensureScratch(maxNodes);
-
-  const queue = bfsQueue;
-  queue[0] = octree.getRoot();
-  let head = 0;
-  let tail = 1;
-  let nextIndex = 1;
-
-  while (head < tail) {
-    const node = queue[head] as OctreeNode;
-    queue[head] = null;
-    const wordOffset = head * 8;
-    head++;
-
-    const { min, max } = node.bounds;
-    const cellWidth = Math.max(max.x - min.x, max.y - min.y, max.z - min.z);
-
-    floatView[wordOffset + 0] = node.centerOfMass.x;
-    floatView[wordOffset + 1] = node.centerOfMass.y;
-    floatView[wordOffset + 2] = node.centerOfMass.z;
-    floatView[wordOffset + 3] = node.totalMass;
-    floatView[wordOffset + 4] = cellWidth;
-
-    const children = node.children;
-    const childCount = children ? children.length : 0;
-
-    intView[wordOffset + 5] = childCount > 0 ? nextIndex : 0;
-    intView[wordOffset + 6] = childCount;
-    intView[wordOffset + 7] = node.particleCount;
-
-    if (childCount > 0) {
-      if (tail + childCount > scratchMaxNodes) {
-        throw new Error(`Octree exceeded scratch capacity (${scratchMaxNodes})`);
-      }
-      for (let i = 0; i < childCount; i++) {
-        queue[tail++] = children![i];
-        nextIndex++;
-      }
-    }
+function ensureScratch(maxNodes: number, maxParticles: number) {
+  if (!nodeScratch || scratchMaxNodes < maxNodes) {
+    nodeScratch = new ArrayBuffer(maxNodes * BYTES_PER_NODE);
+    scratchMaxNodes = maxNodes;
   }
-
-  const nodeCount = tail;
-  return { usedBytes: nodeCount * BYTES_PER_NODE, nodeCount };
+  if (!indexScratch || indexScratch.length < maxParticles) {
+    indexScratch = new Int32Array(maxParticles);
+  }
 }
 
 self.onmessage = (e: MessageEvent) => {
@@ -76,15 +29,17 @@ self.onmessage = (e: MessageEvent) => {
   };
 
   const particles = new Float32Array(particleData);
-  const octree = new Octree(particles);
-  const { usedBytes, nodeCount } = serializeOctree(octree, maxNodes);
+  const numParticles = particles.length / 8;
+  ensureScratch(maxNodes, numParticles);
 
-  // Copy the used portion into a transferable buffer so the main thread
-  // can upload it directly to the GPU without another copy.
-  const result = new ArrayBuffer(usedBytes);
-  new Uint8Array(result).set(new Uint8Array(scratchBuffer!, 0, usedBytes));
+  const { buffer, nodeCount } = buildFlatOctree(particles, {
+    nodeScratch: nodeScratch!,
+    indexScratch: indexScratch!,
+    maxNodes,
+  });
 
-  // Transfer both the result and the original particle data back to the main thread
-  // to avoid allocating a new buffer on the main thread for the next frame.
-  self.postMessage({ buffer: result, nodeCount, particleData }, { transfer: [result, particleData] } as StructuredSerializeOptions);
+  self.postMessage(
+    { buffer, nodeCount, particleData },
+    { transfer: [buffer, particleData] } as StructuredSerializeOptions
+  );
 };

@@ -4,7 +4,7 @@
  */
 
 import { initializeNBodyParticles } from '../initialization';
-import { Octree, OctreeNode } from '../barnesHut/octree';
+import { buildFlatOctree, BYTES_PER_NODE } from '../barnesHut/flatOctree';
 import { packParticlesForGPU, packVelocitiesForGPU, unpackParticlesFromGPU } from './barnesHutPacking';
 import { PerformanceMonitor } from './performanceMonitor';
 import OctreeWorker from './octreeWorker?worker';
@@ -17,13 +17,6 @@ export interface RealtimeSimulationGPUBarnesHutOptions {
   theta?: number;
   octreeRebuildInterval?: number;
 }
-
-// Octree node format for GPU (flatten for buffer)
-// Each node: [centerX, centerY, centerZ, totalMass, cellWidth, childStart, childCount, particleCount]
-// NOTE: childStart, childCount, particleCount must be stored as integers, not floats!
-const FLOATS_PER_NODE = 5; // 5 floats: centerX, centerY, centerZ, totalMass, cellWidth
-const INTS_PER_NODE = 3;   // 3 ints: childStart, childCount, particleCount
-const BYTES_PER_NODE = FLOATS_PER_NODE * 4 + INTS_PER_NODE * 4; // 32 bytes total
 
 export class RealtimeNBodySimulationGPUBarnesHut {
   private device: GPUDevice;
@@ -64,14 +57,6 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   // Web Worker for off-thread octree construction
   private octreeWorker: Worker;
   private maxOctreeNodes: number;
-
-  // Reusable scratch storage for octree serialization (avoids per-frame allocation).
-  // The backing ArrayBuffer is sized once to the worst-case node count and then
-  // overwritten in place every physics tick.
-  private octreeScratch: ArrayBuffer;
-  private octreeFloatView: Float32Array;
-  private octreeIntView: Uint32Array;
-  private bfsNodeQueue: (OctreeNode | null)[];
 
   constructor(options: RealtimeSimulationGPUBarnesHutOptions) {
     this.device = options.device;
@@ -130,14 +115,6 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    // Allocate reusable host-side scratch that matches the GPU buffer. Each node
-    // occupies BYTES_PER_NODE bytes, laid out as 5 floats + 3 u32s in the same
-    // 32-bit slots — the Float32 and Uint32 views alias the same memory.
-    this.octreeScratch = new ArrayBuffer(octreeBufferSize);
-    this.octreeFloatView = new Float32Array(this.octreeScratch);
-    this.octreeIntView = new Uint32Array(this.octreeScratch);
-    this.bfsNodeQueue = new Array(this.maxOctreeNodes).fill(null);
-
     this.forcesUniformsBuffer = this.device.createBuffer({
       size: 16, // numParticles (u32), theta, G, softening
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -177,76 +154,6 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   private uploadVelocitiesToGPU(): void {
     const velocities = packVelocitiesForGPU(this.particlesCPU, this.numParticles);
     this.device.queue.writeBuffer(this.velocityBuffer, 0, velocities);
-  }
-
-  private serializeOctree(
-    octree: Octree
-  ): { view: Uint8Array; nodeCount: number } {
-    // Flatten octree into breadth-first order and write straight into the
-    // reusable scratch buffer. The queue is a preallocated array with head/tail
-    // pointers — no Array.shift() (which is O(n) per call), no per-node
-    // allocations, and no second copy pass.
-    const floats = this.octreeFloatView;
-    const ints = this.octreeIntView;
-    const queue = this.bfsNodeQueue;
-    const capacity = queue.length;
-
-    queue[0] = octree.getRoot();
-    let head = 0;
-    let tail = 1;
-    let nextIndex = 1;
-
-    while (head < tail) {
-      const node = queue[head] as OctreeNode;
-      queue[head] = null; // release reference so the tree can be GC'd after this frame
-      const index = head;
-      head++;
-
-      // Each record is 32 bytes = 8 × 32-bit words. Float and int views alias
-      // the same buffer, so `wordOffset + 0..4` are floats and `+5..7` are u32s.
-      const wordOffset = index * 8;
-
-      const { min, max } = node.bounds;
-      const cellWidth = Math.max(max.x - min.x, max.y - min.y, max.z - min.z);
-
-      floats[wordOffset + 0] = node.centerOfMass.x;
-      floats[wordOffset + 1] = node.centerOfMass.y;
-      floats[wordOffset + 2] = node.centerOfMass.z;
-      floats[wordOffset + 3] = node.totalMass;
-      floats[wordOffset + 4] = cellWidth;
-
-      const children = node.children;
-      const childCount = children ? children.length : 0;
-
-      ints[wordOffset + 5] = childCount > 0 ? nextIndex : 0; // childStart
-      ints[wordOffset + 6] = childCount;                     // childCount
-      ints[wordOffset + 7] = node.particleCount;             // particleCount
-
-      if (childCount > 0) {
-        // Guard against the (should-never-happen) case of blowing past the
-        // worst-case node count used to size GPU + scratch buffers.
-        if (tail + childCount > capacity) {
-          throw new Error(
-            `Octree node count exceeded scratch capacity (${capacity}); ` +
-              `increase maxOctreeNodes.`
-          );
-        }
-        for (let i = 0; i < childCount; i++) {
-          queue[tail++] = children![i];
-          nextIndex++;
-        }
-      }
-    }
-
-    // Return a zero-copy view over just the written bytes. The caller feeds
-    // this directly to GPUQueue.writeBuffer, which copies it into the GPU
-    // buffer without any intermediate host-side allocation.
-    const nodeCount = tail;
-    const usedBytes = nodeCount * BYTES_PER_NODE;
-    return {
-      view: new Uint8Array(this.octreeScratch, 0, usedBytes),
-      nodeCount,
-    };
   }
 
   private createForcesPipeline(): GPUComputePipeline {
@@ -449,7 +356,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
 
     // Build the initial octree from CPU-side particle data (already matches
     // GPU state from the constructor) so the first frame has valid forces.
-    this.uploadOctree(new Octree(this.particlesCPU));
+    this.uploadInitialOctree();
 
     while (this.running) {
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -604,12 +511,9 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     }
   }
 
-  private uploadOctree(octree: Octree): void {
-    const { view } = this.serializeOctree(octree);
-    this.device.queue.writeBuffer(
-      this.octreeBuffer, 0,
-      view.buffer, view.byteOffset, view.byteLength
-    );
+  private uploadInitialOctree(): void {
+    const { buffer } = buildFlatOctree(this.particlesCPU, { maxNodes: this.maxOctreeNodes });
+    this.device.queue.writeBuffer(this.octreeBuffer, 0, buffer);
   }
 
   getDevice(): GPUDevice {
