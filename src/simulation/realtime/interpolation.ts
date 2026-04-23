@@ -11,7 +11,6 @@ import {
   OFFSET_VX,
   OFFSET_VY,
   OFFSET_VZ,
-  OFFSET_MASS,
 } from '../particleData';
 
 /**
