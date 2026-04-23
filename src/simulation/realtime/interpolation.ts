@@ -31,11 +31,21 @@ export function interpolateParticles(
   }
 
   const result = new Float32Array(frame0.length);
-  const oneMinusAlpha = 1 - alpha;
 
-  // Linear interpolation for all components
-  for (let i = 0; i < frame0.length; i++) {
-    result[i] = frame0[i] * oneMinusAlpha + frame1[i] * alpha;
+  // Optimization: Fast copy of initial state (preserves mass and padding)
+  result.set(frame0);
+
+  if (alpha === 0) return result;
+
+  // Optimization: Process only changing values (x,y,z,vx,vy,vz) by memory offset
+  // avoiding mass and padding interpolation.
+  for (let offset = 0; offset < frame0.length; offset += FLOATS_PER_PARTICLE) {
+    result[offset + OFFSET_X] = frame0[offset + OFFSET_X] + (frame1[offset + OFFSET_X] - frame0[offset + OFFSET_X]) * alpha;
+    result[offset + OFFSET_Y] = frame0[offset + OFFSET_Y] + (frame1[offset + OFFSET_Y] - frame0[offset + OFFSET_Y]) * alpha;
+    result[offset + OFFSET_Z] = frame0[offset + OFFSET_Z] + (frame1[offset + OFFSET_Z] - frame0[offset + OFFSET_Z]) * alpha;
+    result[offset + OFFSET_VX] = frame0[offset + OFFSET_VX] + (frame1[offset + OFFSET_VX] - frame0[offset + OFFSET_VX]) * alpha;
+    result[offset + OFFSET_VY] = frame0[offset + OFFSET_VY] + (frame1[offset + OFFSET_VY] - frame0[offset + OFFSET_VY]) * alpha;
+    result[offset + OFFSET_VZ] = frame0[offset + OFFSET_VZ] + (frame1[offset + OFFSET_VZ] - frame0[offset + OFFSET_VZ]) * alpha;
   }
 
   return result;
@@ -57,8 +67,12 @@ export function interpolateParticlesSmooth(
     throw new Error('Frame arrays must have the same length');
   }
 
-  const numParticles = frame0.length / FLOATS_PER_PARTICLE;
   const result = new Float32Array(frame0.length);
+
+  // Optimization: Fast copy of initial state (preserves mass and padding)
+  result.set(frame0);
+
+  if (alpha === 0) return result;
 
   // Hermite basis functions
   const t = alpha;
@@ -70,31 +84,34 @@ export function interpolateParticlesSmooth(
   const h01 = -2 * t3 + 3 * t2; // Position at t=1
   const h11 = t3 - t2; // Velocity at t=1
 
-  const posOffsets = [OFFSET_X, OFFSET_Y, OFFSET_Z];
-  const velOffsets = [OFFSET_VX, OFFSET_VY, OFFSET_VZ];
   const oneMinusAlpha = 1 - alpha;
 
-  for (let i = 0; i < numParticles; i++) {
-    const offset = i * FLOATS_PER_PARTICLE;
-
+  // Optimization: Iterate by offset directly rather than calculating p * FLOATS_PER_PARTICLE
+  for (let offset = 0; offset < frame0.length; offset += FLOATS_PER_PARTICLE) {
     // Hermite interpolation for position (x, y, z) using corresponding velocity components
-    for (let j = 0; j < 3; j++) {
-      const pos0 = frame0[offset + posOffsets[j]];
-      const vel0 = frame0[offset + velOffsets[j]];
-      const pos1 = frame1[offset + posOffsets[j]];
-      const vel1 = frame1[offset + velOffsets[j]];
+    // Optimization: Unroll loops for better cache locality and no dynamic array lookups
+    const pos0x = frame0[offset + OFFSET_X];
+    const vel0x = frame0[offset + OFFSET_VX];
+    const pos1x = frame1[offset + OFFSET_X];
+    const vel1x = frame1[offset + OFFSET_VX];
+    result[offset + OFFSET_X] = h00 * pos0x + h10 * vel0x + h01 * pos1x + h11 * vel1x;
 
-      result[offset + posOffsets[j]] = h00 * pos0 + h10 * vel0 + h01 * pos1 + h11 * vel1;
-    }
+    const pos0y = frame0[offset + OFFSET_Y];
+    const vel0y = frame0[offset + OFFSET_VY];
+    const pos1y = frame1[offset + OFFSET_Y];
+    const vel1y = frame1[offset + OFFSET_VY];
+    result[offset + OFFSET_Y] = h00 * pos0y + h10 * vel0y + h01 * pos1y + h11 * vel1y;
+
+    const pos0z = frame0[offset + OFFSET_Z];
+    const vel0z = frame0[offset + OFFSET_VZ];
+    const pos1z = frame1[offset + OFFSET_Z];
+    const vel1z = frame1[offset + OFFSET_VZ];
+    result[offset + OFFSET_Z] = h00 * pos0z + h10 * vel0z + h01 * pos1z + h11 * vel1z;
 
     // Linear interpolation for velocity (vx, vy, vz)
-    for (let j = 0; j < 3; j++) {
-      const v = velOffsets[j];
-      result[offset + v] = frame0[offset + v] * oneMinusAlpha + frame1[offset + v] * alpha;
-    }
-
-    // Mass doesn't interpolate
-    result[offset + OFFSET_MASS] = frame0[offset + OFFSET_MASS];
+    result[offset + OFFSET_VX] = vel0x * oneMinusAlpha + vel1x * alpha;
+    result[offset + OFFSET_VY] = vel0y * oneMinusAlpha + vel1y * alpha;
+    result[offset + OFFSET_VZ] = vel0z * oneMinusAlpha + vel1z * alpha;
   }
 
   return result;

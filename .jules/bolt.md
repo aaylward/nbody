@@ -48,3 +48,7 @@
 ## 2025-05-19 - [Optimized Worker Memory Churn]
 **Learning:** Sending array buffers back and forth between a web worker via `postMessage` using `StructuredSerializeOptions.transfer` removes ownership from the sender. If you don't return the array buffer back from the worker to the main thread, the main thread will be forced to allocate and copy a new buffer every frame (e.g. `const workerData = this.particlesCPU.buffer.slice(0)`).
 **Action:** When delegating tasks to a web worker in a hot loop using zero-copy transfer (`{ transfer: [buffer] }`), ensure the worker transfers the buffer *back* in its result message so the main thread can reuse it for the next invocation.
+## 2024-04-23 - TypedArray Linear and Hermite Interpolation
+
+**Learning:** When interpolating huge tightly-packed arrays (e.g., millions of elements per frame containing invariants like mass or padding), simple `for (let i = 0; i < array.length; i++)` linear interpolation is extremely wasteful because it recalculates and copies invariants needlessly.
+**Action:** Always pre-copy invariants using fast `TypedArray.prototype.set()`, then only process fields that change over time by manually incrementing an `offset += BLOCK_SIZE` instead of a fully linear copy.
