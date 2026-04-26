@@ -256,9 +256,9 @@ export function extractPositions(data: Float32Array, out?: Float32Array): Float3
 /**
  * Extract velocities into a separate array
  */
-export function extractVelocities(data: Float32Array): Float32Array {
+export function extractVelocities(data: Float32Array, out?: Float32Array): Float32Array {
   const numParticles = getParticleCount(data);
-  const velocities = new Float32Array(numParticles * 3);
+  const velocities = out || new Float32Array(numParticles * 3);
   const numFloats = numParticles * FLOATS_PER_PARTICLE;
 
   // Optimization: Iterate by offset directly rather than calculating per particle
