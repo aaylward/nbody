@@ -34,6 +34,21 @@ describe('particleData', () => {
         expect(data[i]).toBe(0);
       }
     });
+
+    it('should reuse the out buffer if provided', () => {
+      const data = new Float32Array([
+        1, 2, 3, 0, 4, 5, 6, 1,
+        7, 8, 9, 0, 10, 11, 12, 1
+      ]);
+      const out = new Float32Array(6);
+      const result = extractVelocities(data, out);
+
+      expect(result).toBe(out); // Should return the same buffer instance
+      expect(out[0]).toBe(4);
+      expect(out[2]).toBe(6);
+      expect(out[3]).toBe(10);
+      expect(out[5]).toBe(12);
+    });
   });
 
   describe('setParticle and getParticle', () => {
