@@ -53,3 +53,7 @@
 **Learning:** In real-time WebGPU to Three.js synchronization paths, unpacking aligned `vec4<f32>` (16-byte) position buffers from the GPU into unaligned `vec3` `THREE.BufferAttribute` structures via manual Javascript looping (e.g., `pos[i*3] = gpu[i*4]`) introduces substantial CPU overhead and stalls the render thread for large N (100k+ particles).
 **Action:** When transferring padded/aligned buffer data from WebGPU to Three.js, allocate a `THREE.InterleavedBuffer` and use a `THREE.InterleavedBufferAttribute`. This eliminates O(N) CPU looping overhead, allowing you to use fast native O(1) memory copies (`TypedArray.set()`) to dump the entire WebGPU buffer into Three.js instantly.
 
+
+## 2026-04-27 - Pre-calculated CPU Arrays in Physics Loops
+**Learning:** In CPU-bound loops within `generateNBodyCPU`, replacing repeated divisions with a pre-calculated multiplier array (e.g., a `Float64Array` storing `dtHalf / mass` for each particle) yields measurable performance gains by converting multiple `O(N)` divisions per step into fast sequential memory reads.
+**Action:** When implementing high-frequency tight iteration loops handling particles or constants like time steps, pre-compute invariant attributes into sequential TypedArrays to replace redundant arithmetic.
