@@ -47,6 +47,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   private particlesCPU: Float32Array;
   private theta: number;
   private octreeRebuildInterval: number;
+
+  // Hoisted uniform data to avoid per-frame allocations
+  private forcesUniformsBuf = new ArrayBuffer(16);
+  private forcesUniformsU32 = new Uint32Array(this.forcesUniformsBuf);
+  private forcesUniformsF32 = new Float32Array(this.forcesUniformsBuf);
   private rebuildPhase: 'idle' | 'downloading' | 'building' = 'idle';
   private downloadPromise: Promise<void> | null = null;
   private pendingOctreeResult: { buffer: ArrayBuffer; nodeCount: number; particleData: ArrayBuffer } | null = null;
@@ -369,13 +374,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       // Update forces uniforms (theta may change at runtime via setTheta).
       // numParticles must be written as u32 (not f32) because the shader
       // declares it as u32 — the raw bits are reinterpreted, not converted.
-      const forcesUniformsBuf = new ArrayBuffer(16);
-      new Uint32Array(forcesUniformsBuf, 0, 1)[0] = this.numParticles;
-      const forcesUniformsF32 = new Float32Array(forcesUniformsBuf);
-      forcesUniformsF32[1] = this.theta;
-      forcesUniformsF32[2] = 1.0; // G
-      forcesUniformsF32[3] = 2.0; // softening
-      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniformsBuf);
+      this.forcesUniformsU32[0] = this.numParticles;
+      this.forcesUniformsF32[1] = this.theta;
+      this.forcesUniformsF32[2] = 1.0; // G
+      this.forcesUniformsF32[3] = 2.0; // softening
+      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, this.forcesUniformsBuf);
 
       // Create bind groups (one-time).
       if (!this.forcesBindGroup) {
