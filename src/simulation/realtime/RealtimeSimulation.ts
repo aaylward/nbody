@@ -49,6 +49,9 @@ export class RealtimeNBodySimulation {
   // Render buffer (interpolated positions for rendering)
   private renderPositionBuffer!: GPUBuffer;
 
+  // Pre-allocated typed array for uniform updates
+  private interpolationAlphaData = new Float32Array(4);
+
   // GPU buffer layout constants (matches existing nbody.ts)
   private readonly GPU_FLOATS_PER_PARTICLE = 12;
   private readonly GPU_POS_X = 0;
@@ -441,10 +444,11 @@ export class RealtimeNBodySimulation {
     const alpha = this.getPhysicsProgress();
 
     // Update interpolation uniform with current alpha
+    this.interpolationAlphaData[0] = alpha;
     this.device.queue.writeBuffer(
       this.interpolationUniformBuffer,
       0,
-      new Float32Array([alpha, 0, 0, 0])
+      this.interpolationAlphaData
     );
 
     // Run interpolation compute shader
