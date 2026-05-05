@@ -72,6 +72,9 @@ export class RealtimeNBodySimulation {
   public monitor: PerformanceMonitor;
   public targetPhysicsFPS: number;
 
+  // Reusable array for uniform buffer updates to prevent per-frame allocations
+  private interpolationUniformData = new Float32Array(4);
+
   constructor(device: GPUDevice, options: RealtimeSimulationOptions) {
     this.device = device;
     this.numParticles = options.numParticles;
@@ -441,10 +444,11 @@ export class RealtimeNBodySimulation {
     const alpha = this.getPhysicsProgress();
 
     // Update interpolation uniform with current alpha
+    this.interpolationUniformData[0] = alpha;
     this.device.queue.writeBuffer(
       this.interpolationUniformBuffer,
       0,
-      new Float32Array([alpha, 0, 0, 0])
+      this.interpolationUniformData
     );
 
     // Run interpolation compute shader
