@@ -203,7 +203,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
           stack[0] = 0u; // Start with root node
           stackPtr = 1u;
 
-          var totalForce = vec3f(0.0);
+          var totalAccel = vec3f(0.0);
           var iterations = 0u;
 
           // Get octree size for bounds checking
@@ -241,10 +241,10 @@ export class RealtimeNBodySimulationGPUBarnesHut {
             if (useApproximation) {
               // Use center of mass approximation
               let r2 = dot(r, r) + uniforms.softening * uniforms.softening;
-              let rSoft = sqrt(r2);
-              let invR3 = 1.0 / (rSoft * r2);
-              let f = uniforms.G * p.mass * node.totalMass * invR3;
-              totalForce += f * r;
+              let invR = inverseSqrt(r2); // Optimization
+              let invR3 = invR * invR * invR;
+              let a = uniforms.G * node.totalMass * invR3; // Direct acceleration
+              totalAccel += a * r;
             } else {
               // Too close: push children onto stack (with bounds and overflow checks)
               for (var childOffset = 0u; childOffset < node.childCount; childOffset++) {
@@ -267,10 +267,10 @@ export class RealtimeNBodySimulationGPUBarnesHut {
                     let dist_child = length(r_child);
                     if (dist_child > 0.0001) {
                       let r2 = dot(r_child, r_child) + uniforms.softening * uniforms.softening;
-                      let rSoft = sqrt(r2);
-                      let invR3 = 1.0 / (rSoft * r2);
-                      let f = uniforms.G * p.mass * childNode.totalMass * invR3;
-                      totalForce += f * r_child;
+                      let invR = inverseSqrt(r2); // Optimization
+                      let invR3 = invR * invR * invR;
+                      let a = uniforms.G * childNode.totalMass * invR3; // Direct acceleration
+                      totalAccel += a * r_child;
                     }
                   }
                 }
@@ -278,7 +278,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
             }
           }
 
-          forces[particleIdx] = totalForce;
+          forces[particleIdx] = totalAccel; // Storing accel in the forces buffer
         }
       `,
     });
@@ -318,8 +318,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
           if (i >= uniforms.numParticles) { return; }
 
           let p = particles[i];
-          let f = forces[i];
-          let a = f / p.mass;
+          let a = forces[i]; // forces buffer contains acceleration
 
           // Update velocity
           velocities[i] += a * uniforms.deltaT;

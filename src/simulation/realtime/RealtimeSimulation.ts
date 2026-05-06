@@ -109,23 +109,22 @@ export class RealtimeNBodySimulation {
           let i = id.x;
           if (i >= arrayLength(&particles)) { return; }
 
-          var force = vec3f(0.0, 0.0, 0.0);
+          var accel = vec3f(0.0, 0.0, 0.0);
           let pi = particles[i].pos;
-          let mi = particles[i].mass;
 
           for (var j = 0u; j < arrayLength(&particles); j++) {
               if (i == j) { continue; }
 
               let r = particles[j].pos - pi;
               let r2 = dot(r, r) + SOFTENING * SOFTENING;
-              let invR = 1.0 / sqrt(r2);
+              let invR = inverseSqrt(r2); // Optimization: intrinsic fast inverse square root
               let invR3 = invR * invR * invR;
-              let f = G * mi * particles[j].mass * invR3;
+              let a = G * particles[j].mass * invR3; // Compute acceleration directly (a = G * mj / r^2)
 
-              force += f * r;
+              accel += a * r;
           }
 
-          forces[i] = force;
+          forces[i] = accel; // Storing acceleration in the forces buffer directly
       }
     `;
 
@@ -178,8 +177,7 @@ export class RealtimeNBodySimulation {
           let i = id.x;
           if (i >= arrayLength(&particles)) { return; }
 
-          let mass = particles[i].mass;
-          let accel = forces[i] / mass;
+          let accel = forces[i];
 
           // Half-step velocity update (kick)
           particles[i].vel += accel * uniforms.dt * 0.5;
@@ -210,8 +208,7 @@ export class RealtimeNBodySimulation {
           let i = id.x;
           if (i >= arrayLength(&particles)) { return; }
 
-          let mass = particles[i].mass;
-          let accel = forces[i] / mass;
+          let accel = forces[i];
 
           // Half-step velocity update
           particles[i].vel += accel * uniforms.dt * 0.5;
