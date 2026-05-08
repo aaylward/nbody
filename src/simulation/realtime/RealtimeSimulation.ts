@@ -61,6 +61,9 @@ export class RealtimeNBodySimulation {
   private readonly GPU_MASS = 7;
   private readonly GPU_MASS_PAD = 8;
 
+  // Cached uniform array for getRenderPositionBuffer to avoid per-frame allocations
+  private interpolationUniformHostData: Float32Array;
+
   // Simulation state
   private numParticles: number;
   private deltaT: number;
@@ -83,6 +86,9 @@ export class RealtimeNBodySimulation {
 
     // Initialize particles using shared logic (scales radius with N)
     this.initialParticles = initializeNBodyParticles(this.numParticles);
+
+    // Initialize host buffer for interpolation alpha
+    this.interpolationUniformHostData = new Float32Array([0, 0, 0, 0]);
 
     // Set up GPU resources
     this.setupGPU();
@@ -441,10 +447,11 @@ export class RealtimeNBodySimulation {
     const alpha = this.getPhysicsProgress();
 
     // Update interpolation uniform with current alpha
+    this.interpolationUniformHostData[0] = alpha;
     this.device.queue.writeBuffer(
       this.interpolationUniformBuffer,
       0,
-      new Float32Array([alpha, 0, 0, 0])
+      this.interpolationUniformHostData
     );
 
     // Run interpolation compute shader

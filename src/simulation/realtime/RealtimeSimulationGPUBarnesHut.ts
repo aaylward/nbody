@@ -58,6 +58,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   private octreeWorker: Worker;
   private maxOctreeNodes: number;
 
+  // Cached uniform data for physicsLoop to avoid per-frame allocations
+  private forcesUniformsHostBuffer: ArrayBuffer;
+  private forcesUniformsU32: Uint32Array;
+  private forcesUniformsF32: Float32Array;
+
   constructor(options: RealtimeSimulationGPUBarnesHutOptions) {
     this.device = options.device;
     this.numParticles = options.numParticles;
@@ -144,6 +149,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // Create compute pipelines
     this.forcesPipeline = this.createForcesPipeline();
     this.integratePipeline = this.createIntegratePipeline();
+
+    // Initialize host buffers for uniforms
+    this.forcesUniformsHostBuffer = new ArrayBuffer(16);
+    this.forcesUniformsU32 = new Uint32Array(this.forcesUniformsHostBuffer);
+    this.forcesUniformsF32 = new Float32Array(this.forcesUniformsHostBuffer);
   }
 
   private uploadParticlesToGPU(): void {
@@ -369,13 +379,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       // Update forces uniforms (theta may change at runtime via setTheta).
       // numParticles must be written as u32 (not f32) because the shader
       // declares it as u32 — the raw bits are reinterpreted, not converted.
-      const forcesUniformsBuf = new ArrayBuffer(16);
-      new Uint32Array(forcesUniformsBuf, 0, 1)[0] = this.numParticles;
-      const forcesUniformsF32 = new Float32Array(forcesUniformsBuf);
-      forcesUniformsF32[1] = this.theta;
-      forcesUniformsF32[2] = 1.0; // G
-      forcesUniformsF32[3] = 2.0; // softening
-      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniformsBuf);
+      this.forcesUniformsU32[0] = this.numParticles;
+      this.forcesUniformsF32[1] = this.theta;
+      this.forcesUniformsF32[2] = 1.0; // G
+      this.forcesUniformsF32[3] = 2.0; // softening
+      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, this.forcesUniformsHostBuffer);
 
       // Create bind groups (one-time).
       if (!this.forcesBindGroup) {
