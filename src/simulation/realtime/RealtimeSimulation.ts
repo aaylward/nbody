@@ -448,7 +448,7 @@ export class RealtimeNBodySimulation {
     this.device.queue.writeBuffer(
       this.interpolationUniformBuffer,
       0,
-      this.interpolationUniformData
+      this.interpolationUniformData.buffer as ArrayBuffer
     );
 
     // Run interpolation compute shader
