@@ -37,6 +37,9 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   // a single buffer without one pass misreading the other's fields.
   private forcesUniformsBuffer: GPUBuffer;
   private integrateUniformsBuffer: GPUBuffer;
+  private forcesUniformsData: ArrayBuffer;
+  private forcesUniformsDataU32: Uint32Array;
+  private forcesUniformsDataF32: Float32Array;
   private stagingBuffer: GPUBuffer; // Reuse staging buffer for downloads
   private forcesPipeline: GPUComputePipeline;
   private integratePipeline: GPUComputePipeline;
@@ -124,6 +127,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       size: 16, // numParticles (u32), deltaT, 8 bytes padding
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
+
+    // Pre-allocate forces uniform data arrays for zero-allocation per-frame updates
+    this.forcesUniformsData = new ArrayBuffer(16);
+    this.forcesUniformsDataU32 = new Uint32Array(this.forcesUniformsData);
+    this.forcesUniformsDataF32 = new Float32Array(this.forcesUniformsData);
 
     this.stagingBuffer = this.device.createBuffer({
       size: particleBufferSize,
@@ -369,13 +377,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       // Update forces uniforms (theta may change at runtime via setTheta).
       // numParticles must be written as u32 (not f32) because the shader
       // declares it as u32 — the raw bits are reinterpreted, not converted.
-      const forcesUniformsBuf = new ArrayBuffer(16);
-      new Uint32Array(forcesUniformsBuf, 0, 1)[0] = this.numParticles;
-      const forcesUniformsF32 = new Float32Array(forcesUniformsBuf);
-      forcesUniformsF32[1] = this.theta;
-      forcesUniformsF32[2] = 1.0; // G
-      forcesUniformsF32[3] = 2.0; // softening
-      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniformsBuf);
+      this.forcesUniformsDataU32[0] = this.numParticles;
+      this.forcesUniformsDataF32[1] = this.theta;
+      this.forcesUniformsDataF32[2] = 1.0; // G
+      this.forcesUniformsDataF32[3] = 2.0; // softening
+      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, this.forcesUniformsData);
 
       // Create bind groups (one-time).
       if (!this.forcesBindGroup) {
