@@ -83,6 +83,19 @@ describe('particleData', () => {
       expect(p2.x).toBe(3);
       expect(p2.mass).toBe(15);
     });
+
+    it('should write to output buffer if provided', () => {
+      const data = createParticleArray(2);
+      setParticle(data, 1, { x: 5, y: 6, z: 7, vx: 1, vy: 2, vz: 3, mass: 20 });
+
+      const out = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mass: 0 };
+      const result = getParticle(data, 1, out);
+
+      expect(result).toBe(out); // Should return the same instance
+      expect(out.x).toBe(5);
+      expect(out.y).toBe(6);
+      expect(out.mass).toBe(20);
+    });
   });
 
   describe('getPosition', () => {
@@ -219,6 +232,20 @@ describe('particleData', () => {
       expect(objects[1].x).toBe(4);
       expect(objects[1].mass).toBe(10);
     });
+
+    it('should write to output array if provided and resize if necessary', () => {
+      const data = createParticleArray(2);
+      setParticle(data, 0, { x: 1, y: 2, z: 3, vx: 0.1, vy: 0.2, vz: 0.3, mass: 5 });
+      setParticle(data, 1, { x: 4, y: 5, z: 6, vx: 0.4, vy: 0.5, vz: 0.6, mass: 10 });
+
+      const out = [{ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mass: 0 }];
+      const result = toParticleObjects(data, out);
+
+      expect(result).toBe(out);
+      expect(out.length).toBe(2); // Should have resized the array
+      expect(out[0].x).toBe(1);
+      expect(out[1].x).toBe(4);
+    });
   });
 
   describe('extractPositions', () => {
@@ -267,6 +294,19 @@ describe('particleData', () => {
       expect(velocities[3]).toBe(4);
       expect(velocities[4]).toBe(5);
       expect(velocities[5]).toBe(6);
+    });
+
+    it('should write to output buffer if provided', () => {
+      const data = createParticleArray(2);
+      setParticle(data, 0, { x: 0, y: 0, z: 0, vx: 1, vy: 2, vz: 3 });
+      setParticle(data, 1, { x: 0, y: 0, z: 0, vx: 4, vy: 5, vz: 6 });
+
+      const out = new Float32Array(6);
+      const result = extractVelocities(data, out);
+
+      expect(result).toBe(out); // Should return the same buffer instance
+      expect(out[0]).toBe(1);
+      expect(out[5]).toBe(6);
     });
   });
 
