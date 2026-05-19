@@ -61,6 +61,9 @@ export class RealtimeNBodySimulation {
   private readonly GPU_MASS = 7;
   private readonly GPU_MASS_PAD = 8;
 
+  // Reusable data for uniforms to avoid per-frame GC churn
+  private interpolationUniformData = new Float32Array(4);
+
   // Simulation state
   private numParticles: number;
   private deltaT: number;
@@ -440,11 +443,12 @@ export class RealtimeNBodySimulation {
   getRenderPositionBuffer(): GPUBuffer {
     const alpha = this.getPhysicsProgress();
 
-    // Update interpolation uniform with current alpha
+    // Update interpolation uniform with current alpha, reusing the array buffer
+    this.interpolationUniformData[0] = alpha;
     this.device.queue.writeBuffer(
       this.interpolationUniformBuffer,
       0,
-      new Float32Array([alpha, 0, 0, 0])
+      this.interpolationUniformData
     );
 
     // Run interpolation compute shader
