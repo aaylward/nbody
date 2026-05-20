@@ -53,3 +53,11 @@
 **Learning:** In real-time WebGPU to Three.js synchronization paths, unpacking aligned `vec4<f32>` (16-byte) position buffers from the GPU into unaligned `vec3` `THREE.BufferAttribute` structures via manual Javascript looping (e.g., `pos[i*3] = gpu[i*4]`) introduces substantial CPU overhead and stalls the render thread for large N (100k+ particles).
 **Action:** When transferring padded/aligned buffer data from WebGPU to Three.js, allocate a `THREE.InterleavedBuffer` and use a `THREE.InterleavedBufferAttribute`. This eliminates O(N) CPU looping overhead, allowing you to use fast native O(1) memory copies (`TypedArray.set()`) to dump the entire WebGPU buffer into Three.js instantly.
 
+
+## 2025-05-20 - [Optimized Memory Writes in Sequential Loops]
+**Learning:** In sequential parsing/extraction loops over TypedArrays (like extracting interleaved positions or velocities from a stride-8 buffer into a packed stride-3 buffer), doing `out[vIdx++] = data[...]` sequentially involves reading the current index, assigning the value, and then writing back the incremented index for every single component.
+**Action:** Unroll post-increments into constant static offsets (e.g., `out[vIdx]`, `out[vIdx + 1]`, `out[vIdx + 2]`) and do a single addition per loop iteration (`vIdx += 3`). This reduces the number of operations and gives measurable speedups in V8 by avoiding consecutive read-modify-store sequences on the index variable.
+
+## 2025-05-20 - [Reduced Garbage Creation for Buffer Operations]
+**Learning:** Functions that frequently read from big TypedArrays and return a sub-section or processed version of it (e.g. `extractVelocities`) create significant GC pressure when invoked 60 times a second if they internally allocate a new array (`new Float32Array(...)`) on every call.
+**Action:** When creating utility functions that transform or extract buffer arrays used in hot paths, allow them to accept an optional `out` argument so callers can pass in a pre-allocated array and recycle memory across frames.

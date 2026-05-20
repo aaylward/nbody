@@ -268,6 +268,19 @@ describe('particleData', () => {
       expect(velocities[4]).toBe(5);
       expect(velocities[5]).toBe(6);
     });
+
+    it('should write to output buffer if provided', () => {
+      const data = createParticleArray(2);
+      setParticle(data, 0, { x: 0, y: 0, z: 0, vx: 1, vy: 2, vz: 3 });
+      setParticle(data, 1, { x: 0, y: 0, z: 0, vx: 4, vy: 5, vz: 6 });
+
+      const out = new Float32Array(6);
+      const result = extractVelocities(data, out);
+
+      expect(result).toBe(out); // Should return the same buffer instance
+      expect(out[0]).toBe(1);
+      expect(out[5]).toBe(6);
+    });
   });
 
   describe('calculateColors', () => {
