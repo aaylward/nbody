@@ -32,6 +32,7 @@ export class RealtimeNBodySimulation {
   private particleBufferNext!: GPUBuffer;
   private forceBuffer!: GPUBuffer;
   private uniformBuffer!: GPUBuffer;
+  private interpolationUniformData: Float32Array = new Float32Array(4);
   private interpolationUniformBuffer!: GPUBuffer;
 
   // Compute pipelines
@@ -441,10 +442,11 @@ export class RealtimeNBodySimulation {
     const alpha = this.getPhysicsProgress();
 
     // Update interpolation uniform with current alpha
+    this.interpolationUniformData[0] = alpha;
     this.device.queue.writeBuffer(
       this.interpolationUniformBuffer,
       0,
-      new Float32Array([alpha, 0, 0, 0])
+      this.interpolationUniformData
     );
 
     // Run interpolation compute shader
