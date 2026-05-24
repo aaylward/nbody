@@ -46,6 +46,9 @@ export class RealtimeNBodySimulation {
   private kickBindGroup!: GPUBindGroup;
   private interpolateBindGroup!: GPUBindGroup;
 
+  // Reusable array for interpolation uniform buffer updates
+  private interpolationUniformArray = new Float32Array(4);
+
   // Render buffer (interpolated positions for rendering)
   private renderPositionBuffer!: GPUBuffer;
 
@@ -441,10 +444,11 @@ export class RealtimeNBodySimulation {
     const alpha = this.getPhysicsProgress();
 
     // Update interpolation uniform with current alpha
+    this.interpolationUniformArray[0] = alpha;
     this.device.queue.writeBuffer(
       this.interpolationUniformBuffer,
       0,
-      new Float32Array([alpha, 0, 0, 0])
+      this.interpolationUniformArray
     );
 
     // Run interpolation compute shader
