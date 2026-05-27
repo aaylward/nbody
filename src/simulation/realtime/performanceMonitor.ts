@@ -59,13 +59,53 @@ export class PerformanceMonitor {
 
   private average(arr: number[]): number {
     if (arr.length === 0) return 0;
-    return arr.reduce((a, b) => a + b, 0) / arr.length;
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) {
+      sum += arr[i];
+    }
+    return sum / arr.length;
   }
 
   private percentile(arr: number[], p: number): number {
     if (arr.length === 0) return 0;
-    const sorted = [...arr].sort((a, b) => a - b);
-    const index = Math.floor(sorted.length * p);
-    return sorted[index];
+    const index = Math.floor(arr.length * p);
+    // Copy array because QuickSelect mutates it in-place
+    const copy = [...arr];
+    return this.quickSelect(copy, index);
+  }
+
+  private quickSelect(arr: number[], k: number): number {
+    let left = 0, right = arr.length - 1;
+    while (left < right) {
+      const pivotIndex = this.partition(arr, left, right);
+      if (pivotIndex === k) return arr[k];
+      if (k < pivotIndex) right = pivotIndex - 1;
+      else left = pivotIndex + 1;
+    }
+    return arr[k];
+  }
+
+  private partition(arr: number[], left: number, right: number): number {
+    // Lomuto partition scheme
+    // Use middle element as pivot to handle mostly sorted data well
+    const mid = Math.floor((left + right) / 2);
+    let temp = arr[mid];
+    arr[mid] = arr[right];
+    arr[right] = temp;
+
+    const pivot = arr[right];
+    let i = left;
+    for (let j = left; j < right; j++) {
+      if (arr[j] <= pivot) {
+        temp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = temp;
+        i++;
+      }
+    }
+    temp = arr[i];
+    arr[i] = arr[right];
+    arr[right] = temp;
+    return i;
   }
 }
