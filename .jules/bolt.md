@@ -53,3 +53,7 @@
 **Learning:** In real-time WebGPU to Three.js synchronization paths, unpacking aligned `vec4<f32>` (16-byte) position buffers from the GPU into unaligned `vec3` `THREE.BufferAttribute` structures via manual Javascript looping (e.g., `pos[i*3] = gpu[i*4]`) introduces substantial CPU overhead and stalls the render thread for large N (100k+ particles).
 **Action:** When transferring padded/aligned buffer data from WebGPU to Three.js, allocate a `THREE.InterleavedBuffer` and use a `THREE.InterleavedBufferAttribute`. This eliminates O(N) CPU looping overhead, allowing you to use fast native O(1) memory copies (`TypedArray.set()`) to dump the entire WebGPU buffer into Three.js instantly.
 
+
+## 2026-05-31 - [Optimized Realtime Performance Statistics]
+**Learning:** Calculating statistical averages using `Array.prototype.reduce` and percentiles using `[...arr].sort()` scales poorly in V8 hot paths due to callback overhead and O(N log N) scaling. While standard JS arrays are fast, these methods introduce measurable latency when called repeatedly in rendering loops (like a performance monitor).
+**Action:** Replace `reduce` with a standard `for` loop for sums. Use QuickSelect for percentiles (O(N) average time) with a random pivot and Dutch National Flag 3-way partition to handle identical elements gracefully (e.g., constant frame times). Always clamp the calculated index to array bounds to prevent out-of-bounds crashes.
