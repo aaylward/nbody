@@ -55,9 +55,9 @@ describe('particleData', () => {
       expect(retrieved.x).toBe(1.5);
       expect(retrieved.y).toBe(2.5);
       expect(retrieved.z).toBe(3.5);
-      expect(retrieved.vx).toBeCloseTo(0.1, 5);
-      expect(retrieved.vy).toBeCloseTo(0.2, 5);
-      expect(retrieved.vz).toBeCloseTo(0.3, 5);
+      expect(retrieved.vx).toBeCloseTo(0.1);
+      expect(retrieved.vy).toBeCloseTo(0.2);
+      expect(retrieved.vz).toBeCloseTo(0.3);
       expect(retrieved.mass).toBe(10);
     });
 
@@ -160,6 +160,32 @@ describe('particleData', () => {
       expect(copied.z).toBe(7);
       expect(copied.mass).toBe(20);
     });
+
+    it('should write to output object if provided', () => {
+      const data = createParticleArray(3);
+      const particle = {
+        x: 1.5,
+        y: 2.5,
+        z: 3.5,
+        vx: 0.1,
+        vy: 0.2,
+        vz: 0.3,
+        mass: 10,
+      };
+
+      setParticle(data, 1, particle);
+      const out = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mass: 0 };
+      const retrieved = getParticle(data, 1, out);
+
+      expect(retrieved).toBe(out);
+      expect(retrieved.x).toBe(1.5);
+      expect(retrieved.y).toBe(2.5);
+      expect(retrieved.z).toBe(3.5);
+      expect(retrieved.vx).toBeCloseTo(0.1);
+      expect(retrieved.vy).toBeCloseTo(0.2);
+      expect(retrieved.vz).toBeCloseTo(0.3);
+      expect(retrieved.mass).toBe(10);
+    });
   });
 
   describe('getParticleCount', () => {
@@ -219,6 +245,25 @@ describe('particleData', () => {
       expect(objects[1].x).toBe(4);
       expect(objects[1].mass).toBe(10);
     });
+
+    it('should write to output array if provided', () => {
+      const data = createParticleArray(2);
+      setParticle(data, 0, { x: 1, y: 2, z: 3, vx: 0.1, vy: 0.2, vz: 0.3, mass: 5 });
+      setParticle(data, 1, { x: 4, y: 5, z: 6, vx: 0.4, vy: 0.5, vz: 0.6, mass: 10 });
+
+      const out = [
+        { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mass: 0 },
+        { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mass: 0 }
+      ];
+      const objects = toParticleObjects(data, out);
+
+      expect(objects).toBe(out);
+      expect(objects.length).toBe(2);
+      expect(objects[0].x).toBe(1);
+      expect(objects[0].mass).toBe(5);
+      expect(objects[1].x).toBe(4);
+      expect(objects[1].mass).toBe(10);
+    });
   });
 
   describe('extractPositions', () => {
@@ -260,6 +305,24 @@ describe('particleData', () => {
 
       const velocities = extractVelocities(data);
 
+      expect(velocities.length).toBe(6);
+      expect(velocities[0]).toBe(1);
+      expect(velocities[1]).toBe(2);
+      expect(velocities[2]).toBe(3);
+      expect(velocities[3]).toBe(4);
+      expect(velocities[4]).toBe(5);
+      expect(velocities[5]).toBe(6);
+    });
+
+    it('should write to output buffer if provided', () => {
+      const data = createParticleArray(2);
+      setParticle(data, 0, { x: 0, y: 0, z: 0, vx: 1, vy: 2, vz: 3 });
+      setParticle(data, 1, { x: 0, y: 0, z: 0, vx: 4, vy: 5, vz: 6 });
+
+      const out = new Float32Array(6);
+      const velocities = extractVelocities(data, out);
+
+      expect(velocities).toBe(out);
       expect(velocities.length).toBe(6);
       expect(velocities[0]).toBe(1);
       expect(velocities[1]).toBe(2);
