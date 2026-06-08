@@ -59,13 +59,65 @@ export class PerformanceMonitor {
 
   private average(arr: number[]): number {
     if (arr.length === 0) return 0;
-    return arr.reduce((a, b) => a + b, 0) / arr.length;
+    // ⚡ Bolt: Replaced Array.reduce with a standard for-loop to avoid callback allocation
+    // and function call overhead per element, achieving faster average computation in V8.
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) {
+      sum += arr[i];
+    }
+    return sum / arr.length;
   }
 
   private percentile(arr: number[], p: number): number {
     if (arr.length === 0) return 0;
-    const sorted = [...arr].sort((a, b) => a - b);
-    const index = Math.floor(sorted.length * p);
-    return sorted[index];
+    // Clamp the target index to valid bounds
+    const index = Math.max(0, Math.min(Math.floor(arr.length * p), arr.length - 1));
+    // ⚡ Bolt: Replaced O(N log N) full array sort ([...arr].sort()) with O(N) QuickSelect.
+    // This provides a substantial performance boost for high-frequency percentile calculations.
+    return this.quickSelect([...arr], index);
   }
+
+  private quickSelect(arr: number[], k: number): number {
+    let left = 0;
+    let right = arr.length - 1;
+
+    while (left <= right) {
+      if (left === right) return arr[left];
+
+      const pivotIndex = left + Math.floor(Math.random() * (right - left + 1));
+      const pivot = arr[pivotIndex];
+
+      let lt = left;
+      let gt = right;
+      let i = left;
+
+      while (i <= gt) {
+        if (arr[i] < pivot) {
+          const temp = arr[lt];
+          arr[lt] = arr[i];
+          arr[i] = temp;
+          lt++;
+          i++;
+        } else if (arr[i] > pivot) {
+          const temp = arr[gt];
+          arr[gt] = arr[i];
+          arr[i] = temp;
+          gt--;
+        } else {
+          i++;
+        }
+      }
+
+      if (k >= lt && k <= gt) {
+        return arr[k];
+      } else if (k < lt) {
+        right = lt - 1;
+      } else {
+        left = gt + 1;
+      }
+    }
+
+    return 0; // safety base case
+  }
+
 }
