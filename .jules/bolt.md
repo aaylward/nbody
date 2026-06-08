@@ -53,11 +53,3 @@
 **Learning:** In real-time WebGPU to Three.js synchronization paths, unpacking aligned `vec4<f32>` (16-byte) position buffers from the GPU into unaligned `vec3` `THREE.BufferAttribute` structures via manual Javascript looping (e.g., `pos[i*3] = gpu[i*4]`) introduces substantial CPU overhead and stalls the render thread for large N (100k+ particles).
 **Action:** When transferring padded/aligned buffer data from WebGPU to Three.js, allocate a `THREE.InterleavedBuffer` and use a `THREE.InterleavedBufferAttribute`. This eliminates O(N) CPU looping overhead, allowing you to use fast native O(1) memory copies (`TypedArray.set()`) to dump the entire WebGPU buffer into Three.js instantly.
 
-
-## 2025-06-08 - [Optimized Percentile Selection]
-**Learning:** Using `[...arr].sort((a,b) => a-b)` to find a percentile forces an O(N log N) full array sort. For large metric arrays (like frame timings), this is computationally wasteful. A 3-way partition (Dutch National Flag) QuickSelect algorithm achieves O(N) time complexity and efficiently handles arrays with many duplicate elements.
-**Action:** When calculating medians or percentiles in hot paths or large arrays, implement a QuickSelect algorithm instead of relying on native `.sort()`. Ensure to use a random pivot and 3-way partitioning to avoid O(N^2) degradation on arrays with duplicate elements.
-
-## 2025-06-08 - [Optimized Small Array Reductions]
-**Learning:** Using `Array.prototype.reduce` for simple summation involves creating function contexts and invoking callbacks per element, which adds measurable overhead in V8 compared to a standard `for` loop.
-**Action:** Replace simple `.reduce` or higher-order array methods with standard `for` loops in performance-critical sections (e.g., computing averages in high-frequency monitoring classes) to avoid callback allocation and function invocation overhead.
