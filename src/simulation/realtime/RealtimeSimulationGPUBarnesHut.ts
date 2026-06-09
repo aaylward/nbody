@@ -54,6 +54,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   public targetPhysicsFPS: number;
   public monitor: PerformanceMonitor;
 
+  // Reusable buffers for uniforms to avoid per-frame GC churn
+  private forcesUniformsBuf: ArrayBuffer;
+  private forcesUniformsU32: Uint32Array;
+  private forcesUniformsF32: Float32Array;
+
   // Web Worker for off-thread octree construction
   private octreeWorker: Worker;
   private maxOctreeNodes: number;
@@ -71,6 +76,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
 
     // Initialize performance monitor
     this.monitor = new PerformanceMonitor();
+
+    // Pre-allocate uniform buffer arrays to prevent per-frame allocation
+    this.forcesUniformsBuf = new ArrayBuffer(16);
+    this.forcesUniformsU32 = new Uint32Array(this.forcesUniformsBuf);
+    this.forcesUniformsF32 = new Float32Array(this.forcesUniformsBuf);
 
     // Create GPU buffers.
     // NOTE: velocity and forces are declared as array<vec3f> in the shaders.
@@ -369,13 +379,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       // Update forces uniforms (theta may change at runtime via setTheta).
       // numParticles must be written as u32 (not f32) because the shader
       // declares it as u32 — the raw bits are reinterpreted, not converted.
-      const forcesUniformsBuf = new ArrayBuffer(16);
-      new Uint32Array(forcesUniformsBuf, 0, 1)[0] = this.numParticles;
-      const forcesUniformsF32 = new Float32Array(forcesUniformsBuf);
-      forcesUniformsF32[1] = this.theta;
-      forcesUniformsF32[2] = 1.0; // G
-      forcesUniformsF32[3] = 2.0; // softening
-      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniformsBuf);
+      this.forcesUniformsU32[0] = this.numParticles;
+      this.forcesUniformsF32[1] = this.theta;
+      this.forcesUniformsF32[2] = 1.0; // G
+      this.forcesUniformsF32[3] = 2.0; // softening
+      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, this.forcesUniformsBuf);
 
       // Create bind groups (one-time).
       if (!this.forcesBindGroup) {
