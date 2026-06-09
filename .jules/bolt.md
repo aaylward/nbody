@@ -56,3 +56,6 @@
 ## 2025-05-20 - [Optimized TypedArray Allocation in Hot Loops]
 **Learning:** Instantiating `new Float32Array(...)` or `new ArrayBuffer(...)` on every frame inside WebGPU real-time physics loops (e.g. for updating uniform buffers in `getRenderPositionBuffer` and `physicsLoop`) causes unnecessary memory churn and frequent Garbage Collection pauses.
 **Action:** Always pre-allocate reusable ArrayBuffers and TypedArray views as class properties and update their contents directly instead of re-instantiating them inside high-frequency `requestAnimationFrame` or while-loops.
+## 2025-05-20 - [WebGPU TypedArray TypeScript Types]
+**Learning:** When passing pre-allocated TypedArrays to WebGPU methods like `device.queue.writeBuffer()` in TypeScript, a TS2345 error may occur because the type defaults to `Float32Array<ArrayBufferLike>` (which includes `SharedArrayBuffer` incompatible with `GPUAllowSharedBufferSource`).
+**Action:** Resolve this by explicitly passing the underlying buffer and casting it, e.g., `myArray.buffer as ArrayBuffer` to satisfy the strict WebGPU type definitions.
