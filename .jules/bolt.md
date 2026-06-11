@@ -53,3 +53,7 @@
 **Learning:** In real-time WebGPU to Three.js synchronization paths, unpacking aligned `vec4<f32>` (16-byte) position buffers from the GPU into unaligned `vec3` `THREE.BufferAttribute` structures via manual Javascript looping (e.g., `pos[i*3] = gpu[i*4]`) introduces substantial CPU overhead and stalls the render thread for large N (100k+ particles).
 **Action:** When transferring padded/aligned buffer data from WebGPU to Three.js, allocate a `THREE.InterleavedBuffer` and use a `THREE.InterleavedBufferAttribute`. This eliminates O(N) CPU looping overhead, allowing you to use fast native O(1) memory copies (`TypedArray.set()`) to dump the entire WebGPU buffer into Three.js instantly.
 
+
+## 2025-05-19 - [Optimized N-Body Force Calculation]
+**Learning:** In N-body simulations, computing the force and then immediately dividing it by mass to get acceleration (`F = G * mi * mj / r^2`, `a = F / mi`) results in unnecessary multiplications and divisions. By skipping the multiplication by the particle's own mass and directly calculating acceleration (`a = G * mj / r^2`), we can completely eliminate O(N^2) multiplications and O(N) divisions per physics frame.
+**Action:** Always refactor physical simulations to compute acceleration directly instead of force when mass is only used to compute acceleration, significantly improving the inner loop performance.
