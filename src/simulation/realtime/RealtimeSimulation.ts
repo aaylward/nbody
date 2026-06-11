@@ -30,18 +30,18 @@ export class RealtimeNBodySimulation {
   private device: GPUDevice;
   private particleBufferCurrent!: GPUBuffer;
   private particleBufferNext!: GPUBuffer;
-  private forceBuffer!: GPUBuffer;
+  private accelerationBuffer!: GPUBuffer;
   private uniformBuffer!: GPUBuffer;
   private interpolationUniformBuffer!: GPUBuffer;
 
   // Compute pipelines
-  private forcePipeline!: GPUComputePipeline;
+  private accelPipeline!: GPUComputePipeline;
   private kickDriftPipeline!: GPUComputePipeline;
   private kickPipeline!: GPUComputePipeline;
   private interpolatePipeline!: GPUComputePipeline;
 
   // Bind groups
-  private forceBindGroup!: GPUBindGroup;
+  private accelBindGroup!: GPUBindGroup;
   private kickDriftBindGroup!: GPUBindGroup;
   private kickBindGroup!: GPUBindGroup;
   private interpolateBindGroup!: GPUBindGroup;
@@ -90,7 +90,7 @@ export class RealtimeNBodySimulation {
 
   private setupGPU(): void {
     // Particle shader structure
-    const computeForceShader = `
+    const computeAccelShader = `
       struct Particle {
           pos: vec3f,
           vel: vec3f,
@@ -99,17 +99,17 @@ export class RealtimeNBodySimulation {
       }
 
       @group(0) @binding(0) var<storage, read> particles: array<Particle>;
-      @group(0) @binding(1) var<storage, read_write> forces: array<vec3f>;
+      @group(0) @binding(1) var<storage, read_write> accelerations: array<vec3f>;
 
       const G: f32 = 1.0;
       const SOFTENING: f32 = 2.0;
 
       @compute @workgroup_size(256)
-      fn computeForces(@builtin(global_invocation_id) id: vec3u) {
+      fn computeAccelerations(@builtin(global_invocation_id) id: vec3u) {
           let i = id.x;
           if (i >= arrayLength(&particles)) { return; }
 
-          var force = vec3f(0.0, 0.0, 0.0);
+          var accel = vec3f(0.0, 0.0, 0.0);
           let pi = particles[i].pos;
           let mi = particles[i].mass;
 
@@ -120,12 +120,12 @@ export class RealtimeNBodySimulation {
               let r2 = dot(r, r) + SOFTENING * SOFTENING;
               let invR = 1.0 / sqrt(r2);
               let invR3 = invR * invR * invR;
-              let f = G * mi * particles[j].mass * invR3;
+              let a = G * particles[j].mass * invR3;
 
-              force += f * r;
+              accel += a * r;
           }
 
-          forces[i] = force;
+          accelerations[i] = accel;
       }
     `;
 
@@ -170,7 +170,7 @@ export class RealtimeNBodySimulation {
       }
 
       @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
-      @group(0) @binding(1) var<storage, read> forces: array<vec3f>;
+      @group(0) @binding(1) var<storage, read> accelerations: array<vec3f>;
       @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 
       @compute @workgroup_size(256)
@@ -178,8 +178,7 @@ export class RealtimeNBodySimulation {
           let i = id.x;
           if (i >= arrayLength(&particles)) { return; }
 
-          let mass = particles[i].mass;
-          let accel = forces[i] / mass;
+          let accel = accelerations[i];
 
           // Half-step velocity update (kick)
           particles[i].vel += accel * uniforms.dt * 0.5;
@@ -202,7 +201,7 @@ export class RealtimeNBodySimulation {
       }
 
       @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
-      @group(0) @binding(1) var<storage, read> forces: array<vec3f>;
+      @group(0) @binding(1) var<storage, read> accelerations: array<vec3f>;
       @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 
       @compute @workgroup_size(256)
@@ -210,8 +209,7 @@ export class RealtimeNBodySimulation {
           let i = id.x;
           if (i >= arrayLength(&particles)) { return; }
 
-          let mass = particles[i].mass;
-          let accel = forces[i] / mass;
+          let accel = accelerations[i];
 
           // Half-step velocity update
           particles[i].vel += accel * uniforms.dt * 0.5;
@@ -238,7 +236,7 @@ export class RealtimeNBodySimulation {
     new Float32Array(this.particleBufferNext.getMappedRange()).set(gpuParticleData);
     this.particleBufferNext.unmap();
 
-    this.forceBuffer = this.device.createBuffer({
+    this.accelerationBuffer = this.device.createBuffer({
       size: this.numParticles * 4 * 4, // vec3f requires 16-byte alignment
       usage: GPUBufferUsage.STORAGE,
     });
@@ -264,14 +262,14 @@ export class RealtimeNBodySimulation {
     });
 
     // Create pipelines
-    const forceModule = this.device.createShaderModule({ code: computeForceShader });
+    const forceModule = this.device.createShaderModule({ code: computeAccelShader });
     const kickDriftModule = this.device.createShaderModule({ code: kickDriftShader });
     const kickModule = this.device.createShaderModule({ code: kickShader });
     const interpolateModule = this.device.createShaderModule({ code: interpolateShader });
 
-    this.forcePipeline = this.device.createComputePipeline({
+    this.accelPipeline = this.device.createComputePipeline({
       layout: 'auto',
-      compute: { module: forceModule, entryPoint: 'computeForces' },
+      compute: { module: forceModule, entryPoint: 'computeAccelerations' },
     });
 
     this.kickDriftPipeline = this.device.createComputePipeline({
@@ -294,11 +292,11 @@ export class RealtimeNBodySimulation {
   }
 
   private updateBindGroups(): void {
-    this.forceBindGroup = this.device.createBindGroup({
-      layout: this.forcePipeline.getBindGroupLayout(0),
+    this.accelBindGroup = this.device.createBindGroup({
+      layout: this.accelPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.particleBufferCurrent } },
-        { binding: 1, resource: { buffer: this.forceBuffer } },
+        { binding: 1, resource: { buffer: this.accelerationBuffer } },
       ],
     });
 
@@ -306,7 +304,7 @@ export class RealtimeNBodySimulation {
       layout: this.kickDriftPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.particleBufferCurrent } },
-        { binding: 1, resource: { buffer: this.forceBuffer } },
+        { binding: 1, resource: { buffer: this.accelerationBuffer } },
         { binding: 2, resource: { buffer: this.uniformBuffer } },
       ],
     });
@@ -315,7 +313,7 @@ export class RealtimeNBodySimulation {
       layout: this.kickPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.particleBufferCurrent } },
-        { binding: 1, resource: { buffer: this.forceBuffer } },
+        { binding: 1, resource: { buffer: this.accelerationBuffer } },
         { binding: 2, resource: { buffer: this.uniformBuffer } },
       ],
     });
@@ -400,11 +398,11 @@ export class RealtimeNBodySimulation {
     const commandEncoder = this.device.createCommandEncoder();
 
     // 1. Compute forces
-    const forcePass1 = commandEncoder.beginComputePass();
-    forcePass1.setPipeline(this.forcePipeline);
-    forcePass1.setBindGroup(0, this.forceBindGroup);
-    forcePass1.dispatchWorkgroups(workgroupCount);
-    forcePass1.end();
+    const accelPass1 = commandEncoder.beginComputePass();
+    accelPass1.setPipeline(this.accelPipeline);
+    accelPass1.setBindGroup(0, this.accelBindGroup);
+    accelPass1.dispatchWorkgroups(workgroupCount);
+    accelPass1.end();
 
     // 2. Kick + drift
     const kickDriftPass = commandEncoder.beginComputePass();
@@ -414,11 +412,11 @@ export class RealtimeNBodySimulation {
     kickDriftPass.end();
 
     // 3. Recompute forces
-    const forcePass2 = commandEncoder.beginComputePass();
-    forcePass2.setPipeline(this.forcePipeline);
-    forcePass2.setBindGroup(0, this.forceBindGroup);
-    forcePass2.dispatchWorkgroups(workgroupCount);
-    forcePass2.end();
+    const accelPass2 = commandEncoder.beginComputePass();
+    accelPass2.setPipeline(this.accelPipeline);
+    accelPass2.setBindGroup(0, this.accelBindGroup);
+    accelPass2.dispatchWorkgroups(workgroupCount);
+    accelPass2.end();
 
     // 4. Second kick
     const kickPass = commandEncoder.beginComputePass();
@@ -488,7 +486,7 @@ export class RealtimeNBodySimulation {
     this.running = false;
     this.particleBufferCurrent?.destroy();
     this.particleBufferNext?.destroy();
-    this.forceBuffer?.destroy();
+    this.accelerationBuffer?.destroy();
     this.uniformBuffer?.destroy();
     this.interpolationUniformBuffer?.destroy();
     this.renderPositionBuffer?.destroy();
