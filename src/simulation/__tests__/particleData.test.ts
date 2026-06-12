@@ -219,6 +219,47 @@ describe('particleData', () => {
       expect(objects[1].x).toBe(4);
       expect(objects[1].mass).toBe(10);
     });
+
+    it('should reuse objects if out array is provided', () => {
+      const data = createParticleArray(2);
+      setParticle(data, 0, { x: 1, y: 2, z: 3, vx: 0.1, vy: 0.2, vz: 0.3, mass: 5 });
+      setParticle(data, 1, { x: 4, y: 5, z: 6, vx: 0.4, vy: 0.5, vz: 0.6, mass: 10 });
+
+      const out = [
+        { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mass: 0 },
+        { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mass: 0 },
+      ];
+
+      const originalObj0 = out[0];
+      const originalObj1 = out[1];
+
+      const objects = toParticleObjects(data, out);
+
+      expect(objects).toBe(out);
+      expect(objects[0]).toBe(originalObj0); // Verify exact same object instance
+      expect(objects[1]).toBe(originalObj1); // Verify exact same object instance
+      expect(objects[0].x).toBe(1);
+      expect(objects[0].mass).toBe(5);
+      expect(objects[1].x).toBe(4);
+      expect(objects[1].mass).toBe(10);
+    });
+
+    it('should dynamically resize out array if needed', () => {
+      const data = createParticleArray(2);
+      setParticle(data, 0, { x: 1, y: 2, z: 3, vx: 0.1, vy: 0.2, vz: 0.3, mass: 5 });
+      setParticle(data, 1, { x: 4, y: 5, z: 6, vx: 0.4, vy: 0.5, vz: 0.6, mass: 10 });
+
+      const out = [
+        { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mass: 0 },
+      ]; // only 1 element initially
+
+      const objects = toParticleObjects(data, out);
+
+      expect(objects).toBe(out);
+      expect(objects.length).toBe(2);
+      expect(objects[0].x).toBe(1);
+      expect(objects[1].x).toBe(4);
+    });
   });
 
   describe('extractPositions', () => {
@@ -267,6 +308,19 @@ describe('particleData', () => {
       expect(velocities[3]).toBe(4);
       expect(velocities[4]).toBe(5);
       expect(velocities[5]).toBe(6);
+    });
+
+    it('should write to output buffer if provided', () => {
+      const data = createParticleArray(2);
+      setParticle(data, 0, { x: 0, y: 0, z: 0, vx: 1, vy: 2, vz: 3 });
+      setParticle(data, 1, { x: 0, y: 0, z: 0, vx: 4, vy: 5, vz: 6 });
+
+      const out = new Float32Array(6);
+      const result = extractVelocities(data, out);
+
+      expect(result).toBe(out); // Should return the same buffer instance
+      expect(out[0]).toBe(1);
+      expect(out[5]).toBe(6);
     });
   });
 
