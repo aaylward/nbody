@@ -645,37 +645,20 @@ function interpolateSnapshots(
       ts[j] = (j + 1) / saveInterval;
     }
 
-    // Optimization: Iterate by offset directly instead of calculating p * FLOATS_PER_PARTICLE
-    // Optimization: Swap nested loops (particles then frames) to hoist invariant lookups and subtractions.
-    // This reduces array lookups and arithmetic operations by a factor of (saveInterval - 1).
-    for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
-      const s1x = snap1[offset + OFFSET_X];
-      const s1y = snap1[offset + OFFSET_Y];
-      const s1z = snap1[offset + OFFSET_Z];
-      const s1vx = snap1[offset + OFFSET_VX];
-      const s1vy = snap1[offset + OFFSET_VY];
-      const s1vz = snap1[offset + OFFSET_VZ];
-
-      const dx = snap2[offset + OFFSET_X] - s1x;
-      const dy = snap2[offset + OFFSET_Y] - s1y;
-      const dz = snap2[offset + OFFSET_Z] - s1z;
-      const dvx = snap2[offset + OFFSET_VX] - s1vx;
-      const dvy = snap2[offset + OFFSET_VY] - s1vy;
-      const dvz = snap2[offset + OFFSET_VZ] - s1vz;
-
-      for (let j = 0; j < numFrames; j++) {
-        const t = ts[j];
-        const interpolated = frames[j];
-        interpolated[offset + OFFSET_X] = s1x + dx * t;
-        interpolated[offset + OFFSET_Y] = s1y + dy * t;
-        interpolated[offset + OFFSET_Z] = s1z + dz * t;
-        interpolated[offset + OFFSET_VX] = s1vx + dvx * t;
-        interpolated[offset + OFFSET_VY] = s1vy + dvy * t;
-        interpolated[offset + OFFSET_VZ] = s1vz + dvz * t;
-      }
-    }
-
+    // Optimization: Loop over frames first, then properties. Even though hoisting math outside the frame loop
+    // saves some arithmetic operations, V8's JIT compiler optimizes the sequential memory writes much better
+    // when iterating linearly over the target arrays (frames) rather than jumping between them.
     for (let j = 0; j < numFrames; j++) {
+      const t = ts[j];
+      const interpolated = frames[j];
+      for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
+        interpolated[offset + OFFSET_X] = snap1[offset + OFFSET_X] + (snap2[offset + OFFSET_X] - snap1[offset + OFFSET_X]) * t;
+        interpolated[offset + OFFSET_Y] = snap1[offset + OFFSET_Y] + (snap2[offset + OFFSET_Y] - snap1[offset + OFFSET_Y]) * t;
+        interpolated[offset + OFFSET_Z] = snap1[offset + OFFSET_Z] + (snap2[offset + OFFSET_Z] - snap1[offset + OFFSET_Z]) * t;
+        interpolated[offset + OFFSET_VX] = snap1[offset + OFFSET_VX] + (snap2[offset + OFFSET_VX] - snap1[offset + OFFSET_VX]) * t;
+        interpolated[offset + OFFSET_VY] = snap1[offset + OFFSET_VY] + (snap2[offset + OFFSET_VY] - snap1[offset + OFFSET_VY]) * t;
+        interpolated[offset + OFFSET_VZ] = snap1[offset + OFFSET_VZ] + (snap2[offset + OFFSET_VZ] - snap1[offset + OFFSET_VZ]) * t;
+      }
       fullSnapshots[frameIndex++] = frames[j];
     }
   }
