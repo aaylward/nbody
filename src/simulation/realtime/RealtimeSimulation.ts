@@ -40,11 +40,12 @@ export class RealtimeNBodySimulation {
   private kickPipeline!: GPUComputePipeline;
   private interpolatePipeline!: GPUComputePipeline;
 
-  // Bind groups
-  private forceBindGroup!: GPUBindGroup;
-  private kickDriftBindGroup!: GPUBindGroup;
-  private kickBindGroup!: GPUBindGroup;
-  private interpolateBindGroup!: GPUBindGroup;
+  // Bind groups - Double buffered to avoid per-frame allocation
+  private forceBindGroups!: [GPUBindGroup, GPUBindGroup];
+  private kickDriftBindGroups!: [GPUBindGroup, GPUBindGroup];
+  private kickBindGroups!: [GPUBindGroup, GPUBindGroup];
+  private interpolateBindGroups!: [GPUBindGroup, GPUBindGroup];
+  private currentBufferIndex: 0 | 1 = 0;
 
   // Render buffer (interpolated positions for rendering)
   private renderPositionBuffer!: GPUBuffer;
@@ -290,41 +291,72 @@ export class RealtimeNBodySimulation {
     });
 
     // Create bind groups (will be updated in computePhysicsStep to swap buffers)
-    this.updateBindGroups();
+    this.initBindGroups();
   }
 
-  private updateBindGroups(): void {
-    this.forceBindGroup = this.device.createBindGroup({
+  private initBindGroups(): void {
+    // Array of particle buffers
+    const buffers = [this.particleBufferCurrent, this.particleBufferNext];
+
+    this.forceBindGroups = [
+      this.createForceBindGroup(buffers[0]),
+      this.createForceBindGroup(buffers[1])
+    ];
+
+    this.kickDriftBindGroups = [
+      this.createKickDriftBindGroup(buffers[0]),
+      this.createKickDriftBindGroup(buffers[1])
+    ];
+
+    this.kickBindGroups = [
+      this.createKickBindGroup(buffers[0]),
+      this.createKickBindGroup(buffers[1])
+    ];
+
+    this.interpolateBindGroups = [
+      this.createInterpolateBindGroup(buffers[0], buffers[1]),
+      this.createInterpolateBindGroup(buffers[1], buffers[0])
+    ];
+  }
+
+  private createForceBindGroup(particleBuffer: GPUBuffer): GPUBindGroup {
+    return this.device.createBindGroup({
       layout: this.forcePipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: this.particleBufferCurrent } },
+        { binding: 0, resource: { buffer: particleBuffer } },
         { binding: 1, resource: { buffer: this.forceBuffer } },
       ],
     });
+  }
 
-    this.kickDriftBindGroup = this.device.createBindGroup({
+  private createKickDriftBindGroup(particleBuffer: GPUBuffer): GPUBindGroup {
+    return this.device.createBindGroup({
       layout: this.kickDriftPipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: this.particleBufferCurrent } },
+        { binding: 0, resource: { buffer: particleBuffer } },
         { binding: 1, resource: { buffer: this.forceBuffer } },
         { binding: 2, resource: { buffer: this.uniformBuffer } },
       ],
     });
+  }
 
-    this.kickBindGroup = this.device.createBindGroup({
+  private createKickBindGroup(particleBuffer: GPUBuffer): GPUBindGroup {
+    return this.device.createBindGroup({
       layout: this.kickPipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: this.particleBufferCurrent } },
+        { binding: 0, resource: { buffer: particleBuffer } },
         { binding: 1, resource: { buffer: this.forceBuffer } },
         { binding: 2, resource: { buffer: this.uniformBuffer } },
       ],
     });
+  }
 
-    this.interpolateBindGroup = this.device.createBindGroup({
+  private createInterpolateBindGroup(particleBufferCurrent: GPUBuffer, particleBufferNext: GPUBuffer): GPUBindGroup {
+    return this.device.createBindGroup({
       layout: this.interpolatePipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: this.particleBufferCurrent } },
-        { binding: 1, resource: { buffer: this.particleBufferNext } },
+        { binding: 0, resource: { buffer: particleBufferCurrent } },
+        { binding: 1, resource: { buffer: particleBufferNext } },
         { binding: 2, resource: { buffer: this.renderPositionBuffer } },
         { binding: 3, resource: { buffer: this.interpolationUniformBuffer } },
       ],
@@ -370,12 +402,8 @@ export class RealtimeNBodySimulation {
       // Compute next physics step
       await this.computePhysicsStep();
 
-      // Swap GPU buffers (double buffering)
-      [this.particleBufferCurrent, this.particleBufferNext] =
-        [this.particleBufferNext, this.particleBufferCurrent];
-
-      // Update bind groups to point to swapped buffers
-      this.updateBindGroups();
+      // Swap GPU buffers (double buffering) by toggling index
+      this.currentBufferIndex = this.currentBufferIndex === 0 ? 1 : 0;
 
       this.physicsFrameCount++;
       const elapsed = performance.now() - startTime;
@@ -402,28 +430,28 @@ export class RealtimeNBodySimulation {
     // 1. Compute forces
     const forcePass1 = commandEncoder.beginComputePass();
     forcePass1.setPipeline(this.forcePipeline);
-    forcePass1.setBindGroup(0, this.forceBindGroup);
+    forcePass1.setBindGroup(0, this.forceBindGroups[this.currentBufferIndex]);
     forcePass1.dispatchWorkgroups(workgroupCount);
     forcePass1.end();
 
     // 2. Kick + drift
     const kickDriftPass = commandEncoder.beginComputePass();
     kickDriftPass.setPipeline(this.kickDriftPipeline);
-    kickDriftPass.setBindGroup(0, this.kickDriftBindGroup);
+    kickDriftPass.setBindGroup(0, this.kickDriftBindGroups[this.currentBufferIndex]);
     kickDriftPass.dispatchWorkgroups(workgroupCount);
     kickDriftPass.end();
 
     // 3. Recompute forces
     const forcePass2 = commandEncoder.beginComputePass();
     forcePass2.setPipeline(this.forcePipeline);
-    forcePass2.setBindGroup(0, this.forceBindGroup);
+    forcePass2.setBindGroup(0, this.forceBindGroups[this.currentBufferIndex]);
     forcePass2.dispatchWorkgroups(workgroupCount);
     forcePass2.end();
 
     // 4. Second kick
     const kickPass = commandEncoder.beginComputePass();
     kickPass.setPipeline(this.kickPipeline);
-    kickPass.setBindGroup(0, this.kickBindGroup);
+    kickPass.setBindGroup(0, this.kickBindGroups[this.currentBufferIndex]);
     kickPass.dispatchWorkgroups(workgroupCount);
     kickPass.end();
 
@@ -451,7 +479,7 @@ export class RealtimeNBodySimulation {
     const commandEncoder = this.device.createCommandEncoder();
     const interpolatePass = commandEncoder.beginComputePass();
     interpolatePass.setPipeline(this.interpolatePipeline);
-    interpolatePass.setBindGroup(0, this.interpolateBindGroup);
+    interpolatePass.setBindGroup(0, this.interpolateBindGroups[this.currentBufferIndex]);
     interpolatePass.dispatchWorkgroups(Math.ceil(this.numParticles / 256));
     interpolatePass.end();
 
