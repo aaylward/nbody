@@ -50,6 +50,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   private rebuildPhase: 'idle' | 'downloading' | 'building' = 'idle';
   private downloadPromise: Promise<void> | null = null;
   private pendingOctreeResult: { buffer: ArrayBuffer; nodeCount: number; particleData: ArrayBuffer } | null = null;
+
+  // Pre-allocated buffers for hot loop to avoid GC
+  private forcesUniformsBuf?: ArrayBuffer;
+  private forcesUniformsU32?: Uint32Array;
+  private forcesUniformsF32?: Float32Array;
   private framesSinceRebuild = 0;
   public targetPhysicsFPS: number;
   public monitor: PerformanceMonitor;
@@ -369,13 +374,17 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       // Update forces uniforms (theta may change at runtime via setTheta).
       // numParticles must be written as u32 (not f32) because the shader
       // declares it as u32 — the raw bits are reinterpreted, not converted.
-      const forcesUniformsBuf = new ArrayBuffer(16);
-      new Uint32Array(forcesUniformsBuf, 0, 1)[0] = this.numParticles;
-      const forcesUniformsF32 = new Float32Array(forcesUniformsBuf);
-      forcesUniformsF32[1] = this.theta;
-      forcesUniformsF32[2] = 1.0; // G
-      forcesUniformsF32[3] = 2.0; // softening
-      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, forcesUniformsBuf);
+      if (!this.forcesUniformsBuf || !this.forcesUniformsU32 || !this.forcesUniformsF32) {
+        this.forcesUniformsBuf = new ArrayBuffer(16);
+        this.forcesUniformsU32 = new Uint32Array(this.forcesUniformsBuf);
+        this.forcesUniformsF32 = new Float32Array(this.forcesUniformsBuf);
+
+        this.forcesUniformsU32[0] = this.numParticles;
+        this.forcesUniformsF32[2] = 1.0; // G
+        this.forcesUniformsF32[3] = 2.0; // softening
+      }
+      this.forcesUniformsF32[1] = this.theta;
+      this.device.queue.writeBuffer(this.forcesUniformsBuffer, 0, this.forcesUniformsBuf);
 
       // Create bind groups (one-time).
       if (!this.forcesBindGroup) {
