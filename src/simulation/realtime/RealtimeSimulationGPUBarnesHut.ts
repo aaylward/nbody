@@ -374,7 +374,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       // Update forces uniforms (theta may change at runtime via setTheta).
       // numParticles must be written as u32 (not f32) because the shader
       // declares it as u32 — the raw bits are reinterpreted, not converted.
-      if (!this.forcesUniformsBuf) {
+      if (!this.forcesUniformsBuf || !this.forcesUniformsU32 || !this.forcesUniformsF32) {
         this.forcesUniformsBuf = new ArrayBuffer(16);
         this.forcesUniformsU32 = new Uint32Array(this.forcesUniformsBuf);
         this.forcesUniformsF32 = new Float32Array(this.forcesUniformsBuf);
