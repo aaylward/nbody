@@ -53,3 +53,7 @@
 **Learning:** In real-time WebGPU to Three.js synchronization paths, unpacking aligned `vec4<f32>` (16-byte) position buffers from the GPU into unaligned `vec3` `THREE.BufferAttribute` structures via manual Javascript looping (e.g., `pos[i*3] = gpu[i*4]`) introduces substantial CPU overhead and stalls the render thread for large N (100k+ particles).
 **Action:** When transferring padded/aligned buffer data from WebGPU to Three.js, allocate a `THREE.InterleavedBuffer` and use a `THREE.InterleavedBufferAttribute`. This eliminates O(N) CPU looping overhead, allowing you to use fast native O(1) memory copies (`TypedArray.set()`) to dump the entire WebGPU buffer into Three.js instantly.
 
+
+## 2025-06-20 - [Optimized Buffer Allocations in Render/Physics Loops]
+**Learning:** Allocating objects like `new Float32Array([alpha, 0, 0, 0])` or `new ArrayBuffer(16)` every frame inside high-frequency WebGPU loops (like `getRenderPositionBuffer` at 60 FPS or `physicsLoop` at 20-60 FPS) introduces continuous micro-allocations and triggers frequent garbage collection, causing UI micro-stutters and increased CPU overhead.
+**Action:** In high-frequency WebGPU physics or render loops, allocating new `ArrayBuffer` and TypedArray views per frame causes memory churn. Pre-allocate small, fixed-size buffers as class fields and reuse them via direct assignment (e.g., `this.alphaArray[0] = alpha`) before passing them to `device.queue.writeBuffer(..., 0, reusableArray)`.
