@@ -433,6 +433,9 @@ export class RealtimeNBodySimulation {
     await this.device.queue.onSubmittedWorkDone();
   }
 
+  // Optimization: avoid re-allocating Float32Array every frame
+  private alphaArray = new Float32Array(4);
+
   /**
    * Perform GPU interpolation and return the render position buffer
    * This should be called from the render loop at 60 FPS
@@ -441,10 +444,11 @@ export class RealtimeNBodySimulation {
     const alpha = this.getPhysicsProgress();
 
     // Update interpolation uniform with current alpha
+    this.alphaArray[0] = alpha;
     this.device.queue.writeBuffer(
       this.interpolationUniformBuffer,
       0,
-      new Float32Array([alpha, 0, 0, 0])
+      this.alphaArray
     );
 
     // Run interpolation compute shader
