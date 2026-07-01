@@ -218,9 +218,11 @@ export function toParticleObjects(data: Float32Array): Array<{
 
   // Optimization: Inline property reading and offset incrementing
   // to avoid function call overhead of getParticle (~2x faster)
+  // Optimization: Separate the pIdx increment from the assignment to avoid
+  // severe V8 slow paths associated with inline postfix operations during object creation.
   let pIdx = 0;
   for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
-    particles[pIdx++] = {
+    particles[pIdx] = {
       x: data[offset + OFFSET_X],
       y: data[offset + OFFSET_Y],
       z: data[offset + OFFSET_Z],
@@ -229,6 +231,7 @@ export function toParticleObjects(data: Float32Array): Array<{
       vz: data[offset + OFFSET_VZ],
       mass: data[offset + OFFSET_MASS],
     };
+    pIdx++;
   }
 
   return particles;
@@ -243,11 +246,14 @@ export function extractPositions(data: Float32Array, out?: Float32Array): Float3
   const numFloats = numParticles * FLOATS_PER_PARTICLE;
 
   // Optimization: Iterate by offset directly rather than calculating per particle
+  // Optimization: Use explicit offsets and increment pIdx by 3 to avoid postfix
+  // increment allocation/evaluation overhead in V8 inner loops.
   let pIdx = 0;
   for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
-    positions[pIdx++] = data[offset + OFFSET_X];
-    positions[pIdx++] = data[offset + OFFSET_Y];
-    positions[pIdx++] = data[offset + OFFSET_Z];
+    positions[pIdx] = data[offset + OFFSET_X];
+    positions[pIdx + 1] = data[offset + OFFSET_Y];
+    positions[pIdx + 2] = data[offset + OFFSET_Z];
+    pIdx += 3;
   }
 
   return positions;
@@ -262,11 +268,14 @@ export function extractVelocities(data: Float32Array): Float32Array {
   const numFloats = numParticles * FLOATS_PER_PARTICLE;
 
   // Optimization: Iterate by offset directly rather than calculating per particle
+  // Optimization: Use explicit offsets and increment vIdx by 3 to avoid postfix
+  // increment allocation/evaluation overhead in V8 inner loops.
   let vIdx = 0;
   for (let offset = 0; offset < numFloats; offset += FLOATS_PER_PARTICLE) {
-    velocities[vIdx++] = data[offset + OFFSET_VX];
-    velocities[vIdx++] = data[offset + OFFSET_VY];
-    velocities[vIdx++] = data[offset + OFFSET_VZ];
+    velocities[vIdx] = data[offset + OFFSET_VX];
+    velocities[vIdx + 1] = data[offset + OFFSET_VY];
+    velocities[vIdx + 2] = data[offset + OFFSET_VZ];
+    vIdx += 3;
   }
 
   return velocities;
