@@ -459,16 +459,17 @@ function computeForcesCPU(particles: Float32Array | Float64Array, forces: Float3
 
   forces.fill(0);
 
+  // Optimization: Hoist offset counters outside the outer loop and increment via addition
+  // to avoid repeated multiplication per particle, which is measurably faster in V8.
+  let iOffset = 0;
+  let iFxIndex = 0;
+
   for (let i = 0; i < numParticles; i++) {
-    const iOffset = i * FLOATS_PER_PARTICLE;
     const ix = particles[iOffset + OFFSET_X];
     const iy = particles[iOffset + OFFSET_Y];
     const iz = particles[iOffset + OFFSET_Z];
     const im = particles[iOffset + OFFSET_MASS];
     const Gim = G * im;
-
-    // Cache force indices for i
-    const iFxIndex = i * 3;
 
     // Accumulate forces in local variables
     let fx_i = 0;
@@ -476,8 +477,8 @@ function computeForcesCPU(particles: Float32Array | Float64Array, forces: Float3
     let fz_i = 0;
 
     // Pre-calculate starting offset for j
-    let jOffset = (i + 1) * FLOATS_PER_PARTICLE;
-    let jFIndex = (i + 1) * 3;
+    let jOffset = iOffset + FLOATS_PER_PARTICLE;
+    let jFIndex = iFxIndex + 3;
 
     for (let j = i + 1; j < numParticles; j++) {
       const dx = particles[jOffset + OFFSET_X] - ix;
@@ -514,6 +515,9 @@ function computeForcesCPU(particles: Float32Array | Float64Array, forces: Float3
     forces[iFxIndex] += fx_i;
     forces[iFxIndex + 1] += fy_i;
     forces[iFxIndex + 2] += fz_i;
+
+    iOffset += FLOATS_PER_PARTICLE;
+    iFxIndex += 3;
   }
 }
 

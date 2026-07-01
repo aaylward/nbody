@@ -53,3 +53,11 @@
 **Learning:** In real-time WebGPU to Three.js synchronization paths, unpacking aligned `vec4<f32>` (16-byte) position buffers from the GPU into unaligned `vec3` `THREE.BufferAttribute` structures via manual Javascript looping (e.g., `pos[i*3] = gpu[i*4]`) introduces substantial CPU overhead and stalls the render thread for large N (100k+ particles).
 **Action:** When transferring padded/aligned buffer data from WebGPU to Three.js, allocate a `THREE.InterleavedBuffer` and use a `THREE.InterleavedBufferAttribute`. This eliminates O(N) CPU looping overhead, allowing you to use fast native O(1) memory copies (`TypedArray.set()`) to dump the entire WebGPU buffer into Three.js instantly.
 
+
+## 2025-05-19 - [Optimized Postfix Increments in V8]
+**Learning:** Using postfix increments (`pIdx++`) inside tight V8 loops—especially inline during object assignment or sequentially assigning multiple array offsets—causes severe performance degradation. Replacing inline postfix increments with explicit mathematical offsets (`[pIdx]`, `[pIdx + 1]`) and a single assignment increment (`pIdx += 3`) or moving the postfix increment to its own line speeds up execution significantly.
+**Action:** When working in performance-critical loops writing interleaved memory or initializing objects, avoid inline postfix `++` operators. Use explicit addition for array indices and increment the base index independently at the end of the step.
+
+## 2025-05-19 - [Optimized Outer Loops in V8]
+**Learning:** Hoisting calculations like `const iOffset = i * FLOATS_PER_PARTICLE` out of outer loops and replacing them with running additions (`iOffset += FLOATS_PER_PARTICLE`) eliminates repeated O(N) multiplication overhead, which measurably improves CPU execution times in V8 when combined with deep nested O(N^2) algorithms like Barnes-Hut or N-Body physics.
+**Action:** Replace sequential index multiplications in hot loop heads with running addition variables initialized outside the loop block.
