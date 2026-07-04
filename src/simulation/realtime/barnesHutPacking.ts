@@ -19,13 +19,14 @@ import {
 /** CPU stride-8 → GPU [x, y, z, mass] stride-4 */
 export function packParticlesForGPU(cpu: Float32Array, n: number): Float32Array<ArrayBuffer> {
   const gpu = new Float32Array(n * 4);
-  for (let i = 0; i < n; i++) {
-    const src = i * FLOATS_PER_PARTICLE;
-    const dst = i * 4;
-    gpu[dst + 0] = cpu[src + OFFSET_X];
+  const numFloats = n * FLOATS_PER_PARTICLE;
+  let dst = 0;
+  for (let src = 0; src < numFloats; src += FLOATS_PER_PARTICLE) {
+    gpu[dst] = cpu[src + OFFSET_X];
     gpu[dst + 1] = cpu[src + OFFSET_Y];
     gpu[dst + 2] = cpu[src + OFFSET_Z];
     gpu[dst + 3] = cpu[src + OFFSET_MASS];
+    dst += 4;
   }
   return gpu;
 }

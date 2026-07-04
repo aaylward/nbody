@@ -53,3 +53,11 @@
 **Learning:** In real-time WebGPU to Three.js synchronization paths, unpacking aligned `vec4<f32>` (16-byte) position buffers from the GPU into unaligned `vec3` `THREE.BufferAttribute` structures via manual Javascript looping (e.g., `pos[i*3] = gpu[i*4]`) introduces substantial CPU overhead and stalls the render thread for large N (100k+ particles).
 **Action:** When transferring padded/aligned buffer data from WebGPU to Three.js, allocate a `THREE.InterleavedBuffer` and use a `THREE.InterleavedBufferAttribute`. This eliminates O(N) CPU looping overhead, allowing you to use fast native O(1) memory copies (`TypedArray.set()`) to dump the entire WebGPU buffer into Three.js instantly.
 
+
+## 2025-05-20 - [TypedArray Offset Iteration]
+**Learning:** Using explicit offset indexing combined with single pointer increments (e.g. `arr[pIdx + 1] = x; pIdx += 3`) significantly outperforms sequential post-increments (`arr[pIdx++] = x`) inside hot loops for typed arrays in V8.
+**Action:** When extracting data to or from TypedArrays, avoid `arr[pIdx++] = ...` and use explicit constant-offset assignments with one single index addition per iteration.
+
+## 2025-05-20 - [Object Reuse in Extraction]
+**Learning:** Adding `out` parameters to particle data functions allows object/array reuse, bypassing object instantiation overhead in `getParticle`, `toParticleObjects`, and `fromParticleObjects`. This prevents garbage collection pauses in tight rendering loops.
+**Action:** When transforming or fetching object states inside simulation hot paths, optionally pass an `out` target to avoid creating new object allocations on every frame.
