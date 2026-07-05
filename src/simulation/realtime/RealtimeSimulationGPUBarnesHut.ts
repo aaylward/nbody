@@ -28,6 +28,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
 
   // GPU resources
   private particleBuffer: GPUBuffer;
+  private prevPositionBuffer: GPUBuffer;
   private renderPositionBuffer: GPUBuffer;
   private velocityBuffer: GPUBuffer;
   private forcesBuffer: GPUBuffer;
@@ -37,11 +38,14 @@ export class RealtimeNBodySimulationGPUBarnesHut {
   // a single buffer without one pass misreading the other's fields.
   private forcesUniformsBuffer: GPUBuffer;
   private integrateUniformsBuffer: GPUBuffer;
+  private interpolationUniformsBuffer: GPUBuffer;
   private stagingBuffer: GPUBuffer; // Reuse staging buffer for downloads
   private forcesPipeline: GPUComputePipeline;
   private integratePipeline: GPUComputePipeline;
+  private interpolatePipeline: GPUComputePipeline;
   private forcesBindGroup: GPUBindGroup | null = null;
   private integrateBindGroup: GPUBindGroup | null = null;
+  private interpolateBindGroup: GPUBindGroup | null = null;
 
   // CPU octree
   private particlesCPU: Float32Array;
@@ -95,9 +99,17 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
+    // Snapshot of particle state from the previous physics step. The
+    // interpolate pass blends prev → current so rendering stays smooth at
+    // display rate even when physics runs at a much lower rate.
+    this.prevPositionBuffer = this.device.createBuffer({
+      size: particleBufferSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
     this.renderPositionBuffer = this.device.createBuffer({
       size: particleBufferSize,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
     this.velocityBuffer = this.device.createBuffer({
@@ -125,6 +137,11 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
+    this.interpolationUniformsBuffer = this.device.createBuffer({
+      size: 16, // alpha (f32), 12 bytes padding
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
     this.stagingBuffer = this.device.createBuffer({
       size: particleBufferSize,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
@@ -144,11 +161,15 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     // Create compute pipelines
     this.forcesPipeline = this.createForcesPipeline();
     this.integratePipeline = this.createIntegratePipeline();
+    this.interpolatePipeline = this.createInterpolatePipeline();
   }
 
   private uploadParticlesToGPU(): void {
     const gpuData = packParticlesForGPU(this.particlesCPU, this.numParticles);
     this.device.queue.writeBuffer(this.particleBuffer, 0, gpuData);
+    // Seed the previous-state snapshot so interpolation before the first
+    // physics step blends between two identical states (a no-op).
+    this.device.queue.writeBuffer(this.prevPositionBuffer, 0, gpuData);
   }
 
   private uploadVelocitiesToGPU(): void {
@@ -340,6 +361,43 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     });
   }
 
+  private createInterpolatePipeline(): GPUComputePipeline {
+    const shaderModule = this.device.createShaderModule({
+      label: 'Render Interpolation Shader',
+      code: `
+        struct Particle {
+          pos: vec3f,
+          mass: f32,
+        }
+
+        struct Uniforms {
+          alpha: f32,
+        }
+
+        @group(0) @binding(0) var<storage, read> prevParticles: array<Particle>;
+        @group(0) @binding(1) var<storage, read> currParticles: array<Particle>;
+        @group(0) @binding(2) var<storage, read_write> positions: array<vec3f>;
+        @group(0) @binding(3) var<uniform> uniforms: Uniforms;
+
+        @compute @workgroup_size(256)
+        fn main(@builtin(global_invocation_id) id: vec3u) {
+          let i = id.x;
+          if (i >= arrayLength(&currParticles)) { return; }
+          positions[i] = mix(prevParticles[i].pos, currParticles[i].pos, uniforms.alpha);
+        }
+      `,
+    });
+
+    return this.device.createComputePipeline({
+      label: 'Render Interpolation Pipeline',
+      layout: 'auto',
+      compute: {
+        module: shaderModule,
+        entryPoint: 'main',
+      },
+    });
+  }
+
   async start(): Promise<void> {
     console.log(`Starting GPU Barnes-Hut simulation with ${this.numParticles} particles...`);
     this.running = true;
@@ -402,7 +460,7 @@ export class RealtimeNBodySimulationGPUBarnesHut {
         });
       }
 
-      // GPU forces + integrate + render copy
+      // GPU forces + previous-state snapshot + integrate
       const gpuStart = performance.now();
       const commandEncoder = this.device.createCommandEncoder();
 
@@ -413,19 +471,21 @@ export class RealtimeNBodySimulationGPUBarnesHut {
       forcesPass.dispatchWorkgroups(workgroupCount);
       forcesPass.end();
 
+      // Snapshot pre-integration positions so the render loop can blend
+      // prev → current at display rate (see getRenderPositionBuffer).
+      commandEncoder.copyBufferToBuffer(
+        this.particleBuffer,
+        0,
+        this.prevPositionBuffer,
+        0,
+        this.numParticles * 4 * 4
+      );
+
       const integratePass = commandEncoder.beginComputePass();
       integratePass.setPipeline(this.integratePipeline);
       integratePass.setBindGroup(0, this.integrateBindGroup);
       integratePass.dispatchWorkgroups(workgroupCount);
       integratePass.end();
-
-      commandEncoder.copyBufferToBuffer(
-        this.particleBuffer,
-        0,
-        this.renderPositionBuffer,
-        0,
-        this.numParticles * 4 * 4
-      );
 
       this.device.queue.submit([commandEncoder.finish()]);
       await this.device.queue.onSubmittedWorkDone();
@@ -520,7 +580,40 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     return this.device;
   }
 
+  /**
+   * Run GPU interpolation between the previous and current physics states
+   * and return the render position buffer. Called from the render loop at
+   * display rate so motion stays smooth even when physics runs at ~20 FPS.
+   */
   getRenderPositionBuffer(): GPUBuffer {
+    const alpha = this.getPhysicsProgress();
+
+    this.device.queue.writeBuffer(
+      this.interpolationUniformsBuffer,
+      0,
+      new Float32Array([alpha, 0, 0, 0])
+    );
+
+    if (!this.interpolateBindGroup) {
+      this.interpolateBindGroup = this.device.createBindGroup({
+        layout: this.interpolatePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.prevPositionBuffer } },
+          { binding: 1, resource: { buffer: this.particleBuffer } },
+          { binding: 2, resource: { buffer: this.renderPositionBuffer } },
+          { binding: 3, resource: { buffer: this.interpolationUniformsBuffer } },
+        ],
+      });
+    }
+
+    const commandEncoder = this.device.createCommandEncoder();
+    const interpolatePass = commandEncoder.beginComputePass();
+    interpolatePass.setPipeline(this.interpolatePipeline);
+    interpolatePass.setBindGroup(0, this.interpolateBindGroup);
+    interpolatePass.dispatchWorkgroups(Math.ceil(this.numParticles / 256));
+    interpolatePass.end();
+    this.device.queue.submit([commandEncoder.finish()]);
+
     return this.renderPositionBuffer;
   }
 
@@ -563,12 +656,14 @@ export class RealtimeNBodySimulationGPUBarnesHut {
     this.running = false;
     this.octreeWorker.terminate();
     this.particleBuffer.destroy();
+    this.prevPositionBuffer.destroy();
     this.renderPositionBuffer.destroy();
     this.velocityBuffer.destroy();
     this.forcesBuffer.destroy();
     this.octreeBuffer.destroy();
     this.forcesUniformsBuffer.destroy();
     this.integrateUniformsBuffer.destroy();
+    this.interpolationUniformsBuffer.destroy();
     this.stagingBuffer.destroy();
   }
 }
