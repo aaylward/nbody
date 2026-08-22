@@ -1,17 +1,20 @@
-/**
- * Performance statistics display for real-time simulation
- * Shows physics FPS, render FPS, and timing information
- */
-
 import { useEffect, useState } from 'react';
 import { useRealtimeStore } from '../store/useRealtimeStore';
 import './StatsPanel.css'; // Reuse existing stats panel styles
 
 export function PerformanceStats() {
   const simulation = useRealtimeStore((state) => state.simulation);
-  const stats = useRealtimeStore((state) => state.stats);
   const physicsFrameCount = useRealtimeStore((state) => state.physicsFrameCount);
   const updateStats = useRealtimeStore((state) => state.updateStats);
+
+  // Use granular selectors to avoid whole-state subscription
+  const renderFPS = useRealtimeStore((state) => state.stats.renderFPS);
+  const physicsFPS = useRealtimeStore((state) => state.stats.physicsFPS);
+  const physicsAvg = useRealtimeStore((state) => state.stats.physicsAvg);
+  const physicsP95 = useRealtimeStore((state) => state.stats.physicsP95);
+  const renderAvg = useRealtimeStore((state) => state.stats.renderAvg);
+  const renderP95 = useRealtimeStore((state) => state.stats.renderP95);
+
   const [visible, setVisible] = useState(false);
 
   // Update stats periodically
@@ -50,30 +53,30 @@ export function PerformanceStats() {
         <div className="stats-content">
           <div className="stat-row">
             <span className="stat-label">Render FPS:</span>
-            <span className="stat-value" style={{ color: getFPSColor(stats.renderFPS, 60) }}>
-              {stats.renderFPS.toFixed(1)}
+            <span className="stat-value" style={{ color: getFPSColor(renderFPS, 60) }}>
+              {renderFPS.toFixed(1)}
             </span>
             <span className="stat-target">/ 60</span>
           </div>
 
           <div className="stat-row">
             <span className="stat-label">Physics FPS:</span>
-            <span className="stat-value" style={{ color: getFPSColor(stats.physicsFPS, 20) }}>
-              {stats.physicsFPS.toFixed(1)}
+            <span className="stat-value" style={{ color: getFPSColor(physicsFPS, 20) }}>
+              {physicsFPS.toFixed(1)}
             </span>
             <span className="stat-target">/ 20</span>
           </div>
 
           <div className="stat-row">
             <span className="stat-label">Physics Time:</span>
-            <span className="stat-value">{stats.physicsAvg.toFixed(1)}ms</span>
-            <span className="stat-detail">(P95: {stats.physicsP95.toFixed(1)}ms)</span>
+            <span className="stat-value">{physicsAvg.toFixed(1)}ms</span>
+            <span className="stat-detail">(P95: {physicsP95.toFixed(1)}ms)</span>
           </div>
 
           <div className="stat-row">
             <span className="stat-label">Render Time:</span>
-            <span className="stat-value">{stats.renderAvg.toFixed(1)}ms</span>
-            <span className="stat-detail">(P95: {stats.renderP95.toFixed(1)}ms)</span>
+            <span className="stat-value">{renderAvg.toFixed(1)}ms</span>
+            <span className="stat-detail">(P95: {renderP95.toFixed(1)}ms)</span>
           </div>
 
           <div className="stat-row">
