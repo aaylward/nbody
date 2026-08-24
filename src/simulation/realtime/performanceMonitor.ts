@@ -13,31 +13,40 @@ export interface PerformanceStats {
 }
 
 export class PerformanceMonitor {
-  private physicsTimings: number[] = [];
-  private renderTimings: number[] = [];
+  // Optimization: use circular buffers with Float64Array to avoid array allocations
+  // and garbage collection overhead in continuous tracking systems
+  private physicsTimings: Float64Array;
+  private renderTimings: Float64Array;
+  private physicsIdx = 0;
+  private renderIdx = 0;
+  private physicsCount = 0;
+  private renderCount = 0;
   private readonly maxSamples = 60;
 
+  constructor() {
+    this.physicsTimings = new Float64Array(this.maxSamples);
+    this.renderTimings = new Float64Array(this.maxSamples);
+  }
+
   recordPhysicsFrame(duration: number): void {
-    this.physicsTimings.push(duration);
-    if (this.physicsTimings.length > this.maxSamples) {
-      this.physicsTimings.shift();
-    }
+    this.physicsTimings[this.physicsIdx] = duration;
+    this.physicsIdx = (this.physicsIdx + 1) % this.maxSamples;
+    if (this.physicsCount < this.maxSamples) this.physicsCount++;
   }
 
   recordRenderFrame(duration: number): void {
-    this.renderTimings.push(duration);
-    if (this.renderTimings.length > this.maxSamples) {
-      this.renderTimings.shift();
-    }
+    this.renderTimings[this.renderIdx] = duration;
+    this.renderIdx = (this.renderIdx + 1) % this.maxSamples;
+    if (this.renderCount < this.maxSamples) this.renderCount++;
   }
 
   getPhysicsFPS(): number {
-    const avg = this.average(this.physicsTimings);
+    const avg = this.average(this.physicsTimings, this.physicsCount);
     return avg > 0 ? 1000 / avg : 0;
   }
 
   getRenderFPS(): number {
-    const avg = this.average(this.renderTimings);
+    const avg = this.average(this.renderTimings, this.renderCount);
     return avg > 0 ? 1000 / avg : 0;
   }
 
@@ -45,27 +54,39 @@ export class PerformanceMonitor {
     return {
       physicsFPS: this.getPhysicsFPS(),
       renderFPS: this.getRenderFPS(),
-      physicsAvg: this.average(this.physicsTimings),
-      physicsP95: this.percentile(this.physicsTimings, 0.95),
-      renderAvg: this.average(this.renderTimings),
-      renderP95: this.percentile(this.renderTimings, 0.95),
+      physicsAvg: this.average(this.physicsTimings, this.physicsCount),
+      physicsP95: this.percentile(this.physicsTimings, this.physicsCount, 0.95),
+      renderAvg: this.average(this.renderTimings, this.renderCount),
+      renderP95: this.percentile(this.renderTimings, this.renderCount, 0.95),
     };
   }
 
   reset(): void {
-    this.physicsTimings = [];
-    this.renderTimings = [];
+    this.physicsIdx = 0;
+    this.renderIdx = 0;
+    this.physicsCount = 0;
+    this.renderCount = 0;
   }
 
-  private average(arr: number[]): number {
-    if (arr.length === 0) return 0;
-    return arr.reduce((a, b) => a + b, 0) / arr.length;
+  private average(arr: Float64Array, count: number): number {
+    if (count === 0) return 0;
+    let sum = 0;
+    // Optimization: Manual loop is faster than reduce
+    for (let i = 0; i < count; i++) {
+        sum += arr[i];
+    }
+    return sum / count;
   }
 
-  private percentile(arr: number[], p: number): number {
-    if (arr.length === 0) return 0;
-    const sorted = [...arr].sort((a, b) => a - b);
+  private percentile(arr: Float64Array, count: number, p: number): number {
+    if (count === 0) return 0;
+
+    // Optimization: For fixed small size arrays, TypedArray.prototype.sort()
+    // is fast enough and maintains readability. We slice up to count to avoid mutating buffer
+    const sorted = arr.slice(0, count).sort();
+
     const index = Math.floor(sorted.length * p);
-    return sorted[index];
+    // clamp to valid array bounds
+    return sorted[Math.max(0, Math.min(index, count - 1))];
   }
 }
