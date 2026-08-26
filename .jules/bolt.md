@@ -53,3 +53,7 @@
 **Learning:** In real-time WebGPU to Three.js synchronization paths, unpacking aligned `vec4<f32>` (16-byte) position buffers from the GPU into unaligned `vec3` `THREE.BufferAttribute` structures via manual Javascript looping (e.g., `pos[i*3] = gpu[i*4]`) introduces substantial CPU overhead and stalls the render thread for large N (100k+ particles).
 **Action:** When transferring padded/aligned buffer data from WebGPU to Three.js, allocate a `THREE.InterleavedBuffer` and use a `THREE.InterleavedBufferAttribute`. This eliminates O(N) CPU looping overhead, allowing you to use fast native O(1) memory copies (`TypedArray.set()`) to dump the entire WebGPU buffer into Three.js instantly.
 
+
+## 2024-05-25 - [Pre-allocate GPUBindGroups in WebGPU Hot Loops]
+**Learning:** Recreating `GPUBindGroup` objects per-frame during double buffering or similar dynamic state transitions introduces significant CPU overhead and forces garbage collection. This causes micro-stutters and drastically reduces the performance of high-frequency render or compute loops.
+**Action:** Always pre-allocate an array of `GPUBindGroup` objects during initialization (one for each buffer state) and toggle an index (e.g., `currentBufferIndex = 1 - currentBufferIndex`) inside the loop to select the correct pre-built bindings without allocating any new memory.
